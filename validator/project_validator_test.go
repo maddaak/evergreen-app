@@ -3077,9 +3077,9 @@ func TestCheckTaskCommands(t *testing.T) {
 					{Name: "compile"},
 				},
 			}
-			errs := checkTasks(project)
+			errs := validateTaskCommands(project)
 			So(errs, ShouldNotResemble, ValidationErrors{})
-			So(len(errs), ShouldEqual, 2)
+			So(len(errs), ShouldEqual, 1)
 			assert.Contains(t, errs.String(), "task 'compile' does not "+
 				"contain any commands")
 		})
@@ -3100,7 +3100,7 @@ func TestCheckTaskCommands(t *testing.T) {
 						},
 					},
 				}
-				So(validateProjectTaskNames(project), ShouldResemble, ValidationErrors{})
+				So(validateTaskCommands(project), ShouldResemble, ValidationErrors{})
 			})
 		Convey("ensure that plugin commands have setup type",
 			func() {

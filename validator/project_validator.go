@@ -23,6 +23,7 @@ import (
 	"github.com/evergreen-ci/utility"
 	"github.com/mongodb/grip"
 	"github.com/mongodb/grip/level"
+	"github.com/mongodb/grip/message"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -129,6 +130,7 @@ var projectErrorValidators = []projectValidator{
 	validateDependencyGraph,
 	validateProjectFields,
 	validateStatusesForTaskDependencies,
+	validateTaskCommands,
 	validateTaskNames,
 	validateBVNames,
 	validateBVBatchTimes,
@@ -2327,21 +2329,36 @@ func validateTVDependsOnTV(dependentTask, dependedOnTask model.TVPair, statuses 
 	return nil
 }
 
-// checkTasks checks whether project tasks contain warnings by checking if each task
-// has commands, contains exec_timeout_sec, and has valid logger configs, dependencies and task names.
-func checkTasks(project *model.Project) ValidationErrors {
+// validateTaskCommands returns an error if any task does not contain at least one command.
+func validateTaskCommands(project *model.Project) ValidationErrors {
+	grip.Error(message.Fields{
+		"message": "AKHI:::::TESTING validateTaskCommands",
+	})
 	errs := ValidationErrors{}
-	execTimeoutWarningAdded := false
 	for _, task := range project.Tasks {
 		if len(task.Commands) == 0 {
 			errs = append(errs,
 				ValidationError{
 					Message: fmt.Sprintf("task '%s' does not contain any commands",
 						task.Name),
-					Level: Warning,
+					Level: Error,
 				},
 			)
 		}
+	}
+	grip.Error(message.Fields{
+		"message": "AKHI:::::TESTING validateTaskCommands after loop",
+		"errs":    errs,
+	})
+	return errs
+}
+
+// checkTasks checks whether project tasks contain warnings by checking if each task
+// contains exec_timeout_sec, and has valid logger configs, dependencies and task names.
+func checkTasks(project *model.Project) ValidationErrors {
+	errs := ValidationErrors{}
+	execTimeoutWarningAdded := false
+	for _, task := range project.Tasks {
 		if task.Priority > model.MaxConfigSetPriority {
 			errs = append(errs,
 				ValidationError{
