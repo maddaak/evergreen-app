@@ -23,7 +23,6 @@ import (
 	"github.com/evergreen-ci/utility"
 	"github.com/mongodb/grip"
 	"github.com/mongodb/grip/level"
-	"github.com/mongodb/grip/message"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -2331,9 +2330,6 @@ func validateTVDependsOnTV(dependentTask, dependedOnTask model.TVPair, statuses 
 
 // validateTaskCommands returns an error if any task does not contain at least one command.
 func validateTaskCommands(project *model.Project) ValidationErrors {
-	grip.Error(message.Fields{
-		"message": "AKHI:::::TESTING validateTaskCommands",
-	})
 	errs := ValidationErrors{}
 	for _, task := range project.Tasks {
 		if len(task.Commands) == 0 {
@@ -2346,10 +2342,6 @@ func validateTaskCommands(project *model.Project) ValidationErrors {
 			)
 		}
 	}
-	grip.Error(message.Fields{
-		"message": "AKHI:::::TESTING validateTaskCommands after loop",
-		"errs":    errs,
-	})
 	return errs
 }
 

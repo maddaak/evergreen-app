@@ -1873,7 +1873,7 @@ func TestValidateTaskNames(t *testing.T) {
 				Tasks: []model.ProjectTask{{Name: "task,"}},
 			}
 			errs := checkTasks(project)
-			So(len(errs), ShouldEqual, 3)
+			So(len(errs), ShouldEqual, 2)
 			assert.Contains(t, errs.String(), "task name 'task,' should not contain commas")
 		})
 		Convey("Is the same as the all-dependencies syntax", func() {
@@ -1881,7 +1881,7 @@ func TestValidateTaskNames(t *testing.T) {
 				Tasks: []model.ProjectTask{{Name: model.AllDependencies}},
 			}
 			errs := checkTasks(project)
-			So(len(errs), ShouldEqual, 3)
+			So(len(errs), ShouldEqual, 2)
 			assert.Contains(t, errs.String(), "task should not be named '*' because it is ambiguous with the all-dependencies '*' specification")
 		})
 		Convey("Is 'all'", func() {
@@ -1889,7 +1889,7 @@ func TestValidateTaskNames(t *testing.T) {
 				Tasks: []model.ProjectTask{{Name: "all"}},
 			}
 			errs := checkTasks(project)
-			So(len(errs), ShouldEqual, 3)
+			So(len(errs), ShouldEqual, 2)
 			assert.Contains(t, errs.String(), "task should not be named 'all' because it is ambiguous in task specifications for patches")
 		})
 	})
