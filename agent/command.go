@@ -102,7 +102,14 @@ func (a *Agent) runCommandsInBlock(ctx context.Context, tc *taskContext, cmdBloc
 		taskLogger.Infof("Finished running %s commands in %s.", legacyBlockName, time.Since(start).String())
 	}()
 
+	// Safety Runtime check: Fail the task if the main task block has no commands.
+	// This should have been caught by validation, but in case something slipped through
+	// check at runtime to prevent tasks from silently succeeding without doing any work.
 	commands := cmdBlock.commands.List()
+	if cmdBlock.block == command.MainTaskBlock && len(commands) == 0 {
+		return errors.New("Task contains no commands to execute.")
+	}
+
 	for i, commandInfo := range commands {
 		if err := blockCtx.Err(); err != nil {
 			return errors.Wrap(err, "canceled while running commands")

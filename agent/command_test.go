@@ -302,3 +302,75 @@ functions:
 	s.Error(err)
 	s.True(s.mockCommunicator.TaskShouldRetryOnFail)
 }
+
+func (s *CommandSuite) TestMainTaskBlockWithNoCommandsFails() {
+	projYml := `
+tasks:
+  - name: empty_task
+`
+	s.setUpConfigAndProject(projYml)
+
+	// Create a main task block with no commands
+	cmdBlock := commandBlock{
+		block:       "", // MainTaskBlock is empty string
+		commands:    &model.YAMLCommandSet{MultiCommand: []model.PluginCommandConf{}},
+		canFailTask: true,
+	}
+
+	err := s.a.runCommandsInBlock(s.ctx, s.tc, cmdBlock)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "task contains no commands to execute")
+
+	// Clean up logger
+	s.Require().NoError(s.tc.logger.Close())
+}
+
+func (s *CommandSuite) TestPreTaskBlockWithNoCommandsDoesNotFail() {
+	projYml := `
+tasks:
+  - name: some_task
+    commands:
+      - command: shell.exec
+        params:
+          script: echo "hello"
+`
+	s.setUpConfigAndProject(projYml)
+
+	// Create a pre-task block with no commands - this should be allowed
+	cmdBlock := commandBlock{
+		block:       "pre",
+		commands:    &model.YAMLCommandSet{MultiCommand: []model.PluginCommandConf{}},
+		canFailTask: false,
+	}
+
+	err := s.a.runCommandsInBlock(s.ctx, s.tc, cmdBlock)
+	s.Require().NoError(err, "pre-task block with no commands should not fail")
+
+	// Clean up logger
+	s.Require().NoError(s.tc.logger.Close())
+}
+
+func (s *CommandSuite) TestPostTaskBlockWithNoCommandsDoesNotFail() {
+	projYml := `
+tasks:
+  - name: some_task
+    commands:
+      - command: shell.exec
+        params:
+          script: echo "hello"
+`
+	s.setUpConfigAndProject(projYml)
+
+	// Create a post-task block with no commands - this should be allowed
+	cmdBlock := commandBlock{
+		block:       "post",
+		commands:    &model.YAMLCommandSet{MultiCommand: []model.PluginCommandConf{}},
+		canFailTask: false,
+	}
+
+	err := s.a.runCommandsInBlock(s.ctx, s.tc, cmdBlock)
+	s.Require().NoError(err, "post-task block with no commands should not fail")
+
+	// Clean up logger
+	s.Require().NoError(s.tc.logger.Close())
+}
