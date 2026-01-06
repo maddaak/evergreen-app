@@ -590,6 +590,14 @@ func (s3pc *s3put) attachFiles(ctx context.Context, comm client.Communicator, lo
 			secret = s3pc.AwsSecret
 		}
 
+		// Get file size and calculate S3 PUT requests for cost tracking
+		fileInfo, err := os.Stat(fn)
+		if err != nil {
+			return errors.Wrapf(err, "getting file info for '%s'", fn)
+		}
+		fileSize := fileInfo.Size()
+		putRequests := evergreen.CalculatePutRequests(fileSize)
+
 		files = append(files, &artifact.File{
 			Name:        displayName,
 			Link:        fileLink,
@@ -601,6 +609,8 @@ func (s3pc *s3put) attachFiles(ctx context.Context, comm client.Communicator, lo
 			Bucket:      bucket,
 			FileKey:     fileKey,
 			ContentType: s3pc.ContentType,
+			FileSize:    fileSize,
+			PutRequests: putRequests,
 		})
 	}
 

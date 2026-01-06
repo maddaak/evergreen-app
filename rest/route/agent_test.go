@@ -17,6 +17,7 @@ import (
 	mgobson "github.com/evergreen-ci/evergreen/db/mgo/bson"
 	"github.com/evergreen-ci/evergreen/mock"
 	"github.com/evergreen-ci/evergreen/model"
+	"github.com/evergreen-ci/evergreen/model/artifact"
 	"github.com/evergreen-ci/evergreen/model/distro"
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/evergreen-ci/evergreen/model/patch"
@@ -1016,4 +1017,150 @@ func TestStartTaskWithOtelMetadata(t *testing.T) {
 			assert.Equal(t, tc.expectedDisk, updatedTask.Details.DiskDevices)
 		})
 	}
+}
+
+func TestBuildS3CostAttributes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(t, db.ClearCollections(evergreen.ConfigCollection))
+	defer func() {
+		assert.NoError(t, db.ClearCollections(evergreen.ConfigCollection))
+	}()
+
+	costConfig := evergreen.CostConfig{
+		OnDemandDiscount: 0.2,
+	}
+	invalidConfig := evergreen.CostConfig{
+		OnDemandDiscount: 1.5,
+	}
+	require.NoError(t, costConfig.Set(ctx))
+
+	testTask := &task.Task{
+		Id:        "test-task-id",
+		Execution: 5,
+	}
+
+	fileWithoutCost := artifact.File{Name: "file1.txt", FileSize: 0, PutRequests: 0}
+	fileWithCost := artifact.File{Name: "report.html", FileSize: 1048576, PutRequests: 3}
+	anotherFileWithCost := artifact.File{Name: "logs.txt", FileSize: 524288, PutRequests: 3}
+
+	t.Run("NoFiles", func(t *testing.T) {
+		handler := &attachFilesHandler{
+			files: []artifact.File{},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		assert.Nil(t, attrs)
+	})
+
+	t.Run("SingleFileWithoutCostData", func(t *testing.T) {
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithoutCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		assert.Nil(t, attrs)
+	})
+
+	t.Run("MultipleFilesWithoutCostData", func(t *testing.T) {
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithoutCost, fileWithoutCost, fileWithoutCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		assert.Nil(t, attrs)
+	})
+
+	t.Run("SingleFileWithCostData", func(t *testing.T) {
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		require.NotNil(t, attrs)
+		assert.Len(t, attrs, 4)
+
+		attrMap := make(map[string]interface{})
+		for _, attr := range attrs {
+			attrMap[string(attr.Key)] = attr.Value.AsInterface()
+		}
+
+		assert.Equal(t, "test-task-id", attrMap["task_id"])
+		assert.Equal(t, int64(5), attrMap["task_execution"])
+		assert.Equal(t, int64(1), attrMap["s3_files_count"])
+
+		var files []map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(attrMap["s3_files"].(string)), &files))
+		require.Len(t, files, 1)
+		assert.Equal(t, "report.html", files[0]["name"])
+		assert.Equal(t, float64(1048576), files[0]["size"])
+		assert.Equal(t, float64(3), files[0]["put_requests"])
+		assert.InDelta(t, 0.000012, files[0]["estimated_cost"], 0.000001)
+		assert.Equal(t, "calculated", files[0]["cost_status"])
+	})
+
+	t.Run("MultipleFilesWithCostData", func(t *testing.T) {
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithCost, anotherFileWithCost, fileWithoutCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		require.NotNil(t, attrs)
+
+		attrMap := make(map[string]interface{})
+		for _, attr := range attrs {
+			attrMap[string(attr.Key)] = attr.Value.AsInterface()
+		}
+
+		assert.Equal(t, int64(2), attrMap["s3_files_count"])
+
+		var files []map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(attrMap["s3_files"].(string)), &files))
+		require.Len(t, files, 2)
+		assert.Equal(t, "report.html", files[0]["name"])
+		assert.Equal(t, "logs.txt", files[1]["name"])
+	})
+
+	t.Run("WithConfigCleared", func(t *testing.T) {
+		// Clear the config - GetConfig will return empty config with OnDemandDiscount = 0.0
+		require.NoError(t, db.ClearCollections(evergreen.ConfigCollection))
+
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		require.NotNil(t, attrs)
+
+		attrMap := make(map[string]interface{})
+		for _, attr := range attrs {
+			attrMap[string(attr.Key)] = attr.Value.AsInterface()
+		}
+
+		var files []map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(attrMap["s3_files"].(string)), &files))
+		require.Len(t, files, 1)
+		assert.Equal(t, "report.html", files[0]["name"])
+		// OnDemandDiscount = 0.0 (no discount): 3 * $0.000005 = $0.000015
+		assert.Equal(t, 0.000015, files[0]["estimated_cost"])
+		assert.Equal(t, "calculated", files[0]["cost_status"])
+	})
+
+	t.Run("WithInvalidDiscount", func(t *testing.T) {
+		// Set invalid discount
+		require.NoError(t, invalidConfig.Set(ctx))
+
+		handler := &attachFilesHandler{
+			files: []artifact.File{fileWithCost},
+		}
+		attrs := handler.buildS3CostAttributes(ctx, testTask)
+		require.NotNil(t, attrs)
+
+		attrMap := make(map[string]interface{})
+		for _, attr := range attrs {
+			attrMap[string(attr.Key)] = attr.Value.AsInterface()
+		}
+
+		var files []map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(attrMap["s3_files"].(string)), &files))
+		require.Len(t, files, 1)
+		assert.Equal(t, "report.html", files[0]["name"])
+		assert.Equal(t, 0.0, files[0]["estimated_cost"])
+		assert.Equal(t, "error", files[0]["cost_status"])
+	})
 }

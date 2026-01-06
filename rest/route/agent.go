@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/grip"
 	"github.com/mongodb/grip/message"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // GET /rest/v2/agent/perf_monitoring_url
@@ -647,12 +648,78 @@ func (h *attachFilesHandler) Run(ctx context.Context) gimlet.Responder {
 		Files:           artifact.EscapeFiles(h.files),
 	}
 
+	if attrs := h.buildS3CostAttributes(ctx, t); len(attrs) > 0 {
+		ctx = utility.ContextWithAttributes(ctx, attrs)
+	}
+
 	if err = entry.Upsert(ctx); err != nil {
 		message := fmt.Sprintf("updating artifact file info for task %s: %v", t.Id, err)
 		grip.Error(message)
 		return gimlet.MakeJSONInternalErrorResponder(errors.New(message))
 	}
 	return gimlet.NewJSONResponse(fmt.Sprintf("Artifact files for task %s successfully attached", t.Id))
+}
+
+func (h *attachFilesHandler) buildS3CostAttributes(ctx context.Context, t *task.Task) []attribute.KeyValue {
+	type fileInfo struct {
+		Name          string  `json:"name"`
+		Size          int64   `json:"size"`
+		PutRequests   int     `json:"put_requests"`
+		EstimatedCost float64 `json:"estimated_cost,omitempty"`
+		CostStatus    string  `json:"cost_status,omitempty"`
+	}
+
+	// Get config once for all files to avoid repeated config fetches
+	settings, err := evergreen.GetConfig(ctx)
+	var costConfig *evergreen.CostConfig
+	if err != nil || settings == nil {
+		grip.Error(errors.Wrap(err, "getting config for S3 cost calculation"))
+	} else {
+		costConfig = &settings.Cost
+	}
+
+	var files []fileInfo
+	for _, file := range h.files {
+		if file.FileSize > 0 || file.PutRequests > 0 {
+			info := fileInfo{
+				Name:        file.Name,
+				Size:        file.FileSize,
+				PutRequests: file.PutRequests,
+			}
+			// Calculate cost using pre-fetched config if available
+			if costConfig != nil {
+				s3Usage := task.S3Usage{NumPutRequests: file.PutRequests}
+				cost, err := s3Usage.CalculateCostWithConfig(costConfig)
+				if err != nil {
+					grip.Error(errors.Wrap(err, "calculating S3 cost"))
+					info.CostStatus = "error"
+				} else {
+					info.EstimatedCost = cost
+					info.CostStatus = "calculated"
+				}
+			} else {
+				info.CostStatus = "unavailable"
+			}
+			files = append(files, info)
+		}
+	}
+
+	if len(files) == 0 {
+		return nil
+	}
+
+	filesJSON, err := json.Marshal(files)
+	if err != nil {
+		grip.Error(errors.Wrap(err, "marshaling S3 file info"))
+		return nil
+	}
+
+	return []attribute.KeyValue{
+		attribute.String("s3_files", string(filesJSON)),
+		attribute.String("task_id", t.Id),
+		attribute.Int("task_execution", t.Execution),
+		attribute.Int("s3_files_count", len(files)),
+	}
 }
 
 // POST /rest/v2/task/{task_id}/set_results_info
