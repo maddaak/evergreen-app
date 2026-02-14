@@ -14,6 +14,7 @@ import (
 	"github.com/evergreen-ci/evergreen/apimodels"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/patch"
+	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/evergreen/model/task"
 	"github.com/evergreen-ci/evergreen/thirdparty"
 	"github.com/evergreen-ci/evergreen/util"
@@ -66,6 +67,9 @@ type TaskConfig struct {
 	Timeout            Timeout
 	TaskOutput         evergreen.S3Credentials
 	ModulePaths        map[string]string
+	// S3Usage is a pointer to the runtime S3 usage data tracked during task execution.
+	// This allows commands to increment S3 metrics without accessing taskContext directly.
+	S3Usage *s3usage.S3Usage
 	// HasTestResults is true if the task has sent at least one test result.
 	HasTestResults bool
 	// HasFailingTestResult is true if the task has sent at least one test

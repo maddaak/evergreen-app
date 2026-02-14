@@ -17,6 +17,7 @@ import (
 	"github.com/evergreen-ci/evergreen/apimodels"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/artifact"
+	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/evergreen/model/task"
 	"github.com/evergreen-ci/evergreen/testutil"
 	"github.com/evergreen-ci/evergreen/util"
@@ -425,18 +426,18 @@ func TestSignedUrlVisibility(t *testing.T) {
 		file2Info, err := os.Stat(file2)
 		require.NoError(t, err)
 
-		uploadedFiles := []task.FileMetrics{
+		uploadedFiles := []s3usage.FileMetrics{
 			{
 				LocalPath:   file1,
 				RemotePath:  remoteFile,
-				FileSize:    file1Info.Size(),
-				PutRequests: task.CalculatePutRequestsWithContext(task.S3BucketTypeLarge, task.S3UploadMethodPut, file1Info.Size()),
+				FileSizeBytes:    file1Info.Size(),
+				PutRequests: s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
 			},
 			{
 				LocalPath:   file2,
 				RemotePath:  remoteFile,
-				FileSize:    file2Info.Size(),
-				PutRequests: task.CalculatePutRequestsWithContext(task.S3BucketTypeLarge, task.S3UploadMethodPut, file2Info.Size()),
+				FileSizeBytes:    file2Info.Size(),
+				PutRequests: s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
 			},
 		}
 
@@ -496,18 +497,18 @@ func TestContentTypeSaved(t *testing.T) {
 	file2Info, err := os.Stat(file2)
 	require.NoError(t, err)
 
-	uploadedFiles := []task.FileMetrics{
+	uploadedFiles := []s3usage.FileMetrics{
 		{
 			LocalPath:   file1,
 			RemotePath:  remoteFile,
-			FileSize:    file1Info.Size(),
-			PutRequests: task.CalculatePutRequestsWithContext(task.S3BucketTypeLarge, task.S3UploadMethodPut, file1Info.Size()),
+			FileSizeBytes:    file1Info.Size(),
+			PutRequests: s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
 		},
 		{
 			LocalPath:   file2,
 			RemotePath:  remoteFile,
-			FileSize:    file2Info.Size(),
-			PutRequests: task.CalculatePutRequestsWithContext(task.S3BucketTypeLarge, task.S3UploadMethodPut, file2Info.Size()),
+			FileSizeBytes:    file2Info.Size(),
+			PutRequests: s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
 		},
 	}
 

@@ -784,6 +784,7 @@ func MarkEnd(ctx context.Context, settings *evergreen.Settings, t *task.Task, ca
 	}
 
 	t.Details = detailsCopy
+
 	if utility.IsZeroTime(t.StartTime) {
 		grip.Warning(message.Fields{
 			"message":      "task is missing start time",

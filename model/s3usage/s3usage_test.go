@@ -1,4 +1,4 @@
-package task
+package s3usage
 
 import (
 	"testing"
@@ -13,8 +13,37 @@ func TestS3Usage(t *testing.T) {
 		s3Usage := S3Usage{}
 		assert.True(t, s3Usage.IsZero())
 
-		s3Usage.NumPutRequests = 10
+		s3Usage.UserFiles.PutRequests = 10
 		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.UserFiles.UploadBytes = 100
+		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.UserFiles.FileCount = 1
+		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.NumPutRequests = 5
+		assert.False(t, s3Usage.IsZero())
+	})
+
+	t.Run("IncrementUserFiles", func(t *testing.T) {
+		s3Usage := S3Usage{}
+		assert.Equal(t, 0, s3Usage.UserFiles.PutRequests)
+		assert.Equal(t, int64(0), s3Usage.UserFiles.UploadBytes)
+		assert.Equal(t, 0, s3Usage.UserFiles.FileCount)
+
+		s3Usage.IncrementUserFiles(5, 1024, 2)
+		assert.Equal(t, 5, s3Usage.UserFiles.PutRequests)
+		assert.Equal(t, int64(1024), s3Usage.UserFiles.UploadBytes)
+		assert.Equal(t, 2, s3Usage.UserFiles.FileCount)
+
+		s3Usage.IncrementUserFiles(10, 2048, 3)
+		assert.Equal(t, 15, s3Usage.UserFiles.PutRequests)
+		assert.Equal(t, int64(3072), s3Usage.UserFiles.UploadBytes)
+		assert.Equal(t, 5, s3Usage.UserFiles.FileCount)
 	})
 
 	t.Run("IncrementPutRequests", func(t *testing.T) {
@@ -57,66 +86,72 @@ func TestCalculateS3PutCostWithConfig(t *testing.T) {
 	noDiscountConfig := &evergreen.CostConfig{}
 
 	t.Run("WithValidConfig", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(validConfig)
+		cost, err := CalculateS3PutCostWithConfig(1000, validConfig)
 		require.NoError(t, err)
 		assert.InDelta(t, 0.0035, cost, 0.000001)
 	})
 
 	t.Run("WithNilConfig", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(nil)
+		cost, err := CalculateS3PutCostWithConfig(1000, nil)
 		require.NoError(t, err)
 		assert.Equal(t, 0.0, cost)
 	})
 
 	t.Run("WithZeroRequests", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 0}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(validConfig)
+		cost, err := CalculateS3PutCostWithConfig(0, validConfig)
 		require.NoError(t, err)
 		assert.Equal(t, 0.0, cost)
 	})
 
 	t.Run("WithNegativeRequests", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: -10}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(validConfig)
+		cost, err := CalculateS3PutCostWithConfig(-10, validConfig)
 		require.NoError(t, err)
 		assert.Equal(t, 0.0, cost)
 	})
 
 	t.Run("WithDiscountGreaterThanOne", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(invalidHighDiscountConfig)
+		cost, err := CalculateS3PutCostWithConfig(1000, invalidHighDiscountConfig)
 		require.Error(t, err)
 		assert.Equal(t, 0.0, cost)
 	})
 
 	t.Run("WithNegativeDiscount", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(invalidNegativeDiscountConfig)
+		cost, err := CalculateS3PutCostWithConfig(1000, invalidNegativeDiscountConfig)
 		require.Error(t, err)
 		assert.Equal(t, 0.0, cost)
 	})
 
 	t.Run("WithNoDiscount", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(noDiscountConfig)
+		cost, err := CalculateS3PutCostWithConfig(1000, noDiscountConfig)
 		require.NoError(t, err)
 		assert.Equal(t, 0.005, cost)
 	})
 
 	t.Run("WithSingleRequest", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(validConfig)
+		cost, err := CalculateS3PutCostWithConfig(1, validConfig)
 		require.NoError(t, err)
 		assert.InDelta(t, 0.0000035, cost, 0.000000001)
 	})
 
 	t.Run("WithLargeNumberOfRequests", func(t *testing.T) {
-		s3Usage := S3Usage{NumPutRequests: 1000000}
-		cost, err := s3Usage.CalculateS3PutCostWithConfig(validConfig)
+		cost, err := CalculateS3PutCostWithConfig(1000000, validConfig)
 		require.NoError(t, err)
 		assert.InDelta(t, 3.5, cost, 0.001)
+	})
+
+	t.Run("SeparateCostForUserFilesAndLogs", func(t *testing.T) {
+		userFilesCost, err := CalculateS3PutCostWithConfig(1000, validConfig)
+		require.NoError(t, err)
+
+		logsCost, err := CalculateS3PutCostWithConfig(500, validConfig)
+		require.NoError(t, err)
+
+		// User files: 1000 * 0.000005 * 0.7 = 0.0035
+		assert.InDelta(t, 0.0035, userFilesCost, 0.000001)
+		// Logs: 500 * 0.000005 * 0.7 = 0.00175
+		assert.InDelta(t, 0.00175, logsCost, 0.000001)
+		// Total would be: 0.00525
+		assert.InDelta(t, 0.00525, userFilesCost+logsCost, 0.000001)
 	})
 }
 
