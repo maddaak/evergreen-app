@@ -27,6 +27,10 @@ func TestS3Usage(t *testing.T) {
 		s3Usage = S3Usage{}
 		s3Usage.NumPutRequests = 5
 		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.UserFiles.PutCost = 0.005
+		assert.False(t, s3Usage.IsZero())
 	})
 
 	t.Run("IncrementUserFiles", func(t *testing.T) {
@@ -235,5 +239,59 @@ func TestCalculatePutRequestsWithContext(t *testing.T) {
 		assert.Equal(t, 1, CalculatePutRequestsWithContext(S3BucketTypeLarge, S3UploadMethodPut, 5*MB-1))
 		assert.Equal(t, 4, CalculatePutRequestsWithContext(S3BucketTypeSmall, S3UploadMethodPut, 5*MB+1))
 		assert.Equal(t, 4, CalculatePutRequestsWithContext(S3BucketTypeLarge, S3UploadMethodPut, 5*MB+1))
+	})
+}
+
+func TestCalculateAndSetUserFilesCost(t *testing.T) {
+	validConfig := &evergreen.CostConfig{
+		S3Cost: evergreen.S3CostConfig{
+			Upload: evergreen.S3UploadCostConfig{
+				UploadCostDiscount: 0.3,
+			},
+		},
+	}
+
+	t.Run("WithValidConfig", func(t *testing.T) {
+		s3Usage := S3Usage{}
+		s3Usage.UserFiles.PutRequests = 1000
+		require.NoError(t, s3Usage.CalculateAndSetUserFilesCost(validConfig))
+		// 1000 * 0.000005 * 0.7 = 0.0035
+		assert.InDelta(t, 0.0035, s3Usage.UserFiles.PutCost, 0.000001)
+	})
+
+	t.Run("WithNilConfig", func(t *testing.T) {
+		s3Usage := S3Usage{}
+		s3Usage.UserFiles.PutRequests = 1000
+		require.NoError(t, s3Usage.CalculateAndSetUserFilesCost(nil))
+		assert.Equal(t, 0.0, s3Usage.UserFiles.PutCost)
+	})
+
+	t.Run("WithZeroPutRequests", func(t *testing.T) {
+		s3Usage := S3Usage{}
+		require.NoError(t, s3Usage.CalculateAndSetUserFilesCost(validConfig))
+		assert.Equal(t, 0.0, s3Usage.UserFiles.PutCost)
+	})
+
+	t.Run("WithInvalidDiscount", func(t *testing.T) {
+		invalidConfig := &evergreen.CostConfig{
+			S3Cost: evergreen.S3CostConfig{
+				Upload: evergreen.S3UploadCostConfig{
+					UploadCostDiscount: 1.5,
+				},
+			},
+		}
+		s3Usage := S3Usage{}
+		s3Usage.UserFiles.PutRequests = 1000
+		require.Error(t, s3Usage.CalculateAndSetUserFilesCost(invalidConfig))
+		assert.Equal(t, 0.0, s3Usage.UserFiles.PutCost)
+	})
+
+	t.Run("DoesNotAffectNumPutRequests", func(t *testing.T) {
+		s3Usage := S3Usage{}
+		s3Usage.UserFiles.PutRequests = 1000
+		s3Usage.NumPutRequests = 500
+		require.NoError(t, s3Usage.CalculateAndSetUserFilesCost(validConfig))
+		assert.InDelta(t, 0.0035, s3Usage.UserFiles.PutCost, 0.000001)
+		assert.Equal(t, 500, s3Usage.NumPutRequests)
 	})
 }

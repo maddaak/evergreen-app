@@ -18,9 +18,10 @@ type S3Usage struct {
 
 // UserFilesMetrics tracks artifact upload metrics.
 type UserFilesMetrics struct {
-	PutRequests int   `bson:"put_requests,omitempty" json:"put_requests,omitempty"`
-	UploadBytes int64 `bson:"upload_bytes,omitempty" json:"upload_bytes,omitempty"`
-	FileCount   int   `bson:"file_count,omitempty" json:"file_count,omitempty"`
+	PutRequests int     `bson:"put_requests,omitempty" json:"put_requests,omitempty"`
+	UploadBytes int64   `bson:"upload_bytes,omitempty" json:"upload_bytes,omitempty"`
+	FileCount   int     `bson:"file_count,omitempty" json:"file_count,omitempty"`
+	PutCost     float64 `bson:"put_cost,omitempty" json:"put_cost,omitempty"`
 }
 
 // FileMetrics contains metrics for a single uploaded file.
@@ -141,6 +142,16 @@ func CalculateS3PutCostWithConfig(putRequests int, costConfig *evergreen.CostCon
 	return float64(putRequests) * S3PutRequestCost * (1 - discount), nil
 }
 
+// CalculateAndSetUserFilesCost calculates the S3 PUT cost for user file uploads and stores it.
+func (s *S3Usage) CalculateAndSetUserFilesCost(costConfig *evergreen.CostConfig) error {
+	cost, err := CalculateS3PutCostWithConfig(s.UserFiles.PutRequests, costConfig)
+	if err != nil {
+		return err
+	}
+	s.UserFiles.PutCost = cost
+	return nil
+}
+
 // IncrementUserFiles increments the user file upload metrics (artifacts from s3.put commands).
 func (s *S3Usage) IncrementUserFiles(putRequests int, uploadBytes int64, fileCount int) {
 	s.UserFiles.PutRequests += putRequests
@@ -157,5 +168,5 @@ func (s *S3Usage) IncrementPutRequests(count int) {
 // IsZero implements bsoncodec.Zeroer for BSON marshalling.
 func (s *S3Usage) IsZero() bool {
 	return s.UserFiles.PutRequests == 0 && s.UserFiles.UploadBytes == 0 && s.UserFiles.FileCount == 0 &&
-		s.NumPutRequests == 0
+		s.UserFiles.PutCost == 0 && s.NumPutRequests == 0
 }

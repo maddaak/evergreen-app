@@ -1252,14 +1252,6 @@ func (a *Agent) finishTask(ctx context.Context, tc *taskContext, status string, 
 	if detail.Description != "" {
 		span.SetAttributes(attribute.String(evergreen.TaskDescriptionOtelAttribute, detail.Description))
 	}
-	if !tc.s3Usage.IsZero() {
-		span.SetAttributes(
-			attribute.Int(evergreen.TaskS3UserFilePutRequestsOtelAttribute, tc.s3Usage.UserFiles.PutRequests),
-			attribute.Int64(evergreen.TaskS3UserFileUploadBytesOtelAttribute, tc.s3Usage.UserFiles.UploadBytes),
-			attribute.Int(evergreen.TaskS3UserFileCountOtelAttribute, tc.s3Usage.UserFiles.FileCount),
-		)
-	}
-
 	return resp, nil
 }
 

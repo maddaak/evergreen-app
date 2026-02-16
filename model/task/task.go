@@ -2365,6 +2365,23 @@ func (t *Task) MarkEnd(ctx context.Context, finishTime time.Time, detail *apimod
 
 	if detail.S3Usage != nil {
 		t.S3Usage = *detail.S3Usage
+
+		costConfig := evergreen.CostConfig{}
+		if err := costConfig.Get(ctx); err != nil {
+			grip.Warning(message.WrapError(err, message.Fields{
+				"message":   "failed to get cost config for S3 cost calculation",
+				"task_id":   t.Id,
+				"execution": t.Execution,
+			}))
+		} else {
+			if err := t.S3Usage.CalculateAndSetUserFilesCost(&costConfig); err != nil {
+				grip.Warning(message.WrapError(err, message.Fields{
+					"message":   "failed to calculate S3 user file cost",
+					"task_id":   t.Id,
+					"execution": t.Execution,
+				}))
+			}
+		}
 	}
 
 	grip.Debug(message.Fields{
