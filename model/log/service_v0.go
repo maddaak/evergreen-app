@@ -80,9 +80,8 @@ func (s *logServiceV0) Append(ctx context.Context, logName string, sequence int,
 		return errors.Wrap(err, "writing log chunk to bucket")
 	}
 
-	// Track S3 PUT requests after successful upload
 	if tracker := GetS3Usage(ctx); tracker != nil {
-		tracker.IncrementPutRequests(1) // Task logs use small bucket + Put method + small chunks = always 1 PUT
+		tracker.IncrementLogFiles(1, int64(len(rawLines)), 1)
 	}
 
 	return nil

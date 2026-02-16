@@ -508,6 +508,11 @@ const (
 	TaskS3UserFileCountOtelAttribute       = "evergreen.task.s3_user_file_count"
 	TaskS3UserFilePutCostOtelAttribute     = "evergreen.task.s3_user_file_put_cost"
 
+	// S3 log file otel attributes
+	TaskS3LogPutRequestsOtelAttribute            = "evergreen.task.s3_log_put_requests"
+	TaskS3LogUploadBytesUncompressedOtelAttribute = "evergreen.task.s3_log_upload_bytes_uncompressed"
+	TaskS3LogChunksUploadedOtelAttribute          = "evergreen.task.s3_log_chunks_uploaded"
+
 	// task otel attributes
 	DisplayTaskIDOtelAttribute   = "evergreen.display_task.id"
 	DisplayTaskNameOtelAttribute = "evergreen.display_task.name"

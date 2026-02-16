@@ -46,7 +46,7 @@ func TestTaskBuildFromService(t *testing.T) {
 					ProjectId:                   utility.ToStringPtr("testProject"),
 					Priority:                    100,
 					TaskCost:                    &cost.Cost{OnDemandEC2Cost: 3.25, AdjustedEC2Cost: 5.25},
-					S3Usage:                     &s3usage.S3Usage{UserFiles: s3usage.UserFilesMetrics{PutRequests: 10, UploadBytes: 5000, FileCount: 3, PutCost: 0.00005}},
+					S3Usage:                     &s3usage.S3Usage{UserFiles: s3usage.UserFilesMetrics{PutRequests: 10, UploadBytes: 5000, FileCount: 3, PutCost: 0.00005}, LogFiles: s3usage.LogFilesMetrics{PutRequests: 20, UploadBytesUncompressed: 50000, LogChunksUploaded: 20}},
 					Execution:                   2,
 					Activated:                   true,
 					ActivatedBy:                 utility.ToStringPtr("testActivator"),
@@ -105,7 +105,7 @@ func TestTaskBuildFromService(t *testing.T) {
 					Execution:                   2,
 					Priority:                    100,
 					TaskCost:                    cost.Cost{OnDemandEC2Cost: 3.25, AdjustedEC2Cost: 5.25},
-					S3Usage:                     s3usage.S3Usage{UserFiles: s3usage.UserFilesMetrics{PutRequests: 10, UploadBytes: 5000, FileCount: 3, PutCost: 0.00005}},
+					S3Usage:                     s3usage.S3Usage{UserFiles: s3usage.UserFilesMetrics{PutRequests: 10, UploadBytes: 5000, FileCount: 3, PutCost: 0.00005}, LogFiles: s3usage.LogFilesMetrics{PutRequests: 20, UploadBytesUncompressed: 50000, LogChunksUploaded: 20}},
 					Activated:                   true,
 					ActivatedBy:                 "testActivator",
 					ContainerAllocated:          true,
@@ -285,6 +285,9 @@ func TestTaskBuildFromService(t *testing.T) {
 					So(apiTask.S3Usage.UserFiles.UploadBytes, ShouldEqual, tc.at.S3Usage.UserFiles.UploadBytes)
 					So(apiTask.S3Usage.UserFiles.FileCount, ShouldEqual, tc.at.S3Usage.UserFiles.FileCount)
 					So(apiTask.S3Usage.UserFiles.PutCost, ShouldEqual, tc.at.S3Usage.UserFiles.PutCost)
+					So(apiTask.S3Usage.LogFiles.PutRequests, ShouldEqual, tc.at.S3Usage.LogFiles.PutRequests)
+					So(apiTask.S3Usage.LogFiles.UploadBytesUncompressed, ShouldEqual, tc.at.S3Usage.LogFiles.UploadBytesUncompressed)
+					So(apiTask.S3Usage.LogFiles.LogChunksUploaded, ShouldEqual, tc.at.S3Usage.LogFiles.LogChunksUploaded)
 				}
 			}
 		})

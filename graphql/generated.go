@@ -968,6 +968,12 @@ type ComplexityRoot struct {
 		UseAsync             func(childComplexity int) int
 	}
 
+	LogFilesMetrics struct {
+		LogChunksUploaded       func(childComplexity int) int
+		PutRequests             func(childComplexity int) int
+		UploadBytesUncompressed func(childComplexity int) int
+	}
+
 	LogMessage struct {
 		Message   func(childComplexity int) int
 		Severity  func(childComplexity int) int
@@ -1688,6 +1694,7 @@ type ComplexityRoot struct {
 	}
 
 	S3Usage struct {
+		LogFiles  func(childComplexity int) int
 		UserFiles func(childComplexity int) int
 	}
 
@@ -6195,6 +6202,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.LogBuffering.UseAsync(childComplexity), true
 
+	case "LogFilesMetrics.logChunksUploaded":
+		if e.complexity.LogFilesMetrics.LogChunksUploaded == nil {
+			break
+		}
+
+		return e.complexity.LogFilesMetrics.LogChunksUploaded(childComplexity), true
+	case "LogFilesMetrics.putRequests":
+		if e.complexity.LogFilesMetrics.PutRequests == nil {
+			break
+		}
+
+		return e.complexity.LogFilesMetrics.PutRequests(childComplexity), true
+	case "LogFilesMetrics.uploadBytesUncompressed":
+		if e.complexity.LogFilesMetrics.UploadBytesUncompressed == nil {
+			break
+		}
+
+		return e.complexity.LogFilesMetrics.UploadBytesUncompressed(childComplexity), true
+
 	case "LogMessage.message":
 		if e.complexity.LogMessage.Message == nil {
 			break
@@ -9756,6 +9782,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.S3UploadCostConfig.UploadCostDiscount(childComplexity), true
 
+	case "S3Usage.logFiles":
+		if e.complexity.S3Usage.LogFiles == nil {
+			break
+		}
+
+		return e.complexity.S3Usage.LogFiles(childComplexity), true
 	case "S3Usage.userFiles":
 		if e.complexity.S3Usage.UserFiles == nil {
 			break
@@ -35016,6 +35048,93 @@ func (ec *executionContext) fieldContext_LogBuffering_incomingBufferFactor(_ con
 	return fc, nil
 }
 
+func (ec *executionContext) _LogFilesMetrics_putRequests(ctx context.Context, field graphql.CollectedField, obj *s3usage.LogFilesMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LogFilesMetrics_putRequests,
+		func(ctx context.Context) (any, error) {
+			return obj.PutRequests, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LogFilesMetrics_putRequests(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogFilesMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogFilesMetrics_uploadBytesUncompressed(ctx context.Context, field graphql.CollectedField, obj *s3usage.LogFilesMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LogFilesMetrics_uploadBytesUncompressed,
+		func(ctx context.Context) (any, error) {
+			return obj.UploadBytesUncompressed, nil
+		},
+		nil,
+		ec.marshalOInt2int64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LogFilesMetrics_uploadBytesUncompressed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogFilesMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogFilesMetrics_logChunksUploaded(ctx context.Context, field graphql.CollectedField, obj *s3usage.LogFilesMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LogFilesMetrics_logChunksUploaded,
+		func(ctx context.Context) (any, error) {
+			return obj.LogChunksUploaded, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LogFilesMetrics_logChunksUploaded(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogFilesMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _LogMessage_message(ctx context.Context, field graphql.CollectedField, obj *apimodels.LogMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -57103,6 +57222,43 @@ func (ec *executionContext) fieldContext_S3Usage_userFiles(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _S3Usage_logFiles(ctx context.Context, field graphql.CollectedField, obj *s3usage.S3Usage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_S3Usage_logFiles,
+		func(ctx context.Context) (any, error) {
+			return obj.LogFiles, nil
+		},
+		nil,
+		ec.marshalOLogFilesMetrics2githubᚗcomᚋevergreenᚑciᚋevergreenᚋmodelᚋs3usageᚐLogFilesMetrics,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_S3Usage_logFiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "S3Usage",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "putRequests":
+				return ec.fieldContext_LogFilesMetrics_putRequests(ctx, field)
+			case "uploadBytesUncompressed":
+				return ec.fieldContext_LogFilesMetrics_uploadBytesUncompressed(ctx, field)
+			case "logChunksUploaded":
+				return ec.fieldContext_LogFilesMetrics_logChunksUploaded(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type LogFilesMetrics", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SESConfig_senderAddress(ctx context.Context, field graphql.CollectedField, obj *model.APISESConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -64373,6 +64529,8 @@ func (ec *executionContext) fieldContext_Task_s3Usage(_ context.Context, field g
 			switch field.Name {
 			case "userFiles":
 				return ec.fieldContext_S3Usage_userFiles(ctx, field)
+			case "logFiles":
+				return ec.fieldContext_S3Usage_logFiles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type S3Usage", field.Name)
 		},
@@ -94558,6 +94716,46 @@ func (ec *executionContext) _LogBuffering(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var logFilesMetricsImplementors = []string{"LogFilesMetrics"}
+
+func (ec *executionContext) _LogFilesMetrics(ctx context.Context, sel ast.SelectionSet, obj *s3usage.LogFilesMetrics) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, logFilesMetricsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LogFilesMetrics")
+		case "putRequests":
+			out.Values[i] = ec._LogFilesMetrics_putRequests(ctx, field, obj)
+		case "uploadBytesUncompressed":
+			out.Values[i] = ec._LogFilesMetrics_uploadBytesUncompressed(ctx, field, obj)
+		case "logChunksUploaded":
+			out.Values[i] = ec._LogFilesMetrics_logChunksUploaded(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var logMessageImplementors = []string{"LogMessage"}
 
 func (ec *executionContext) _LogMessage(ctx context.Context, sel ast.SelectionSet, obj *apimodels.LogMessage) graphql.Marshaler {
@@ -101359,6 +101557,8 @@ func (ec *executionContext) _S3Usage(ctx context.Context, sel ast.SelectionSet, 
 			out.Values[i] = graphql.MarshalString("S3Usage")
 		case "userFiles":
 			out.Values[i] = ec._S3Usage_userFiles(ctx, field, obj)
+		case "logFiles":
+			out.Values[i] = ec._S3Usage_logFiles(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -116930,6 +117130,10 @@ func (ec *executionContext) marshalOLogBuffering2ᚖgithubᚗcomᚋevergreenᚑc
 		return graphql.Null
 	}
 	return ec._LogBuffering(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOLogFilesMetrics2githubᚗcomᚋevergreenᚑciᚋevergreenᚋmodelᚋs3usageᚐLogFilesMetrics(ctx context.Context, sel ast.SelectionSet, v s3usage.LogFilesMetrics) graphql.Marshaler {
+	return ec._LogFilesMetrics(ctx, sel, &v)
 }
 
 func (ec *executionContext) marshalOLoggerConfig2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPILoggerConfig(ctx context.Context, sel ast.SelectionSet, v *model.APILoggerConfig) graphql.Marshaler {

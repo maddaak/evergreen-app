@@ -305,6 +305,7 @@ S3Usage represents S3 API usage metrics for a task.
 """
 type S3Usage {
   userFiles: UserFilesMetrics
+  logFiles: LogFilesMetrics
 }
 
 """
@@ -315,6 +316,15 @@ type UserFilesMetrics {
   uploadBytes: Int
   fileCount: Int
   putCost: Float
+}
+
+"""
+LogFilesMetrics contains task log upload metrics.
+"""
+type LogFilesMetrics {
+  putRequests: Int
+  uploadBytesUncompressed: Int
+  logChunksUploaded: Int
 }
 
 input QuarantineTestInput {

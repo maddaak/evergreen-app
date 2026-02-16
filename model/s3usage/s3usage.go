@@ -11,9 +11,7 @@ import (
 // S3Usage tracks S3 API usage for cost calculation.
 type S3Usage struct {
 	UserFiles UserFilesMetrics `bson:"user_files,omitempty" json:"user_files,omitempty"`
-	// NumPutRequests tracks log upload requests (maintained for backward compatibility).
-	// Will be migrated to nested structure in future ticket.
-	NumPutRequests int `bson:"num_put_requests,omitempty" json:"num_put_requests,omitempty"`
+	LogFiles  LogFilesMetrics  `bson:"log_files,omitempty" json:"log_files,omitempty"`
 }
 
 // UserFilesMetrics tracks artifact upload metrics.
@@ -22,6 +20,13 @@ type UserFilesMetrics struct {
 	UploadBytes int64   `bson:"upload_bytes,omitempty" json:"upload_bytes,omitempty"`
 	FileCount   int     `bson:"file_count,omitempty" json:"file_count,omitempty"`
 	PutCost     float64 `bson:"put_cost,omitempty" json:"put_cost,omitempty"`
+}
+
+// LogFilesMetrics tracks task log upload metrics.
+type LogFilesMetrics struct {
+	PutRequests             int   `bson:"put_requests,omitempty" json:"put_requests,omitempty"`
+	UploadBytesUncompressed int64 `bson:"upload_bytes_uncompressed,omitempty" json:"upload_bytes_uncompressed,omitempty"`
+	LogChunksUploaded       int   `bson:"log_chunks_uploaded,omitempty" json:"log_chunks_uploaded,omitempty"`
 }
 
 // FileMetrics contains metrics for a single uploaded file.
@@ -159,14 +164,16 @@ func (s *S3Usage) IncrementUserFiles(putRequests int, uploadBytes int64, fileCou
 	s.UserFiles.FileCount += fileCount
 }
 
-// IncrementPutRequests increments the total PUT request count.
-// Used for log upload tracking. Maintained for backward compatibility.
-func (s *S3Usage) IncrementPutRequests(count int) {
-	s.NumPutRequests += count
+// IncrementLogFiles increments the log file upload metrics (task log chunks uploaded to S3).
+func (s *S3Usage) IncrementLogFiles(putRequests int, uploadBytes int64, chunkCount int) {
+	s.LogFiles.PutRequests += putRequests
+	s.LogFiles.UploadBytesUncompressed += uploadBytes
+	s.LogFiles.LogChunksUploaded += chunkCount
 }
 
 // IsZero implements bsoncodec.Zeroer for BSON marshalling.
 func (s *S3Usage) IsZero() bool {
 	return s.UserFiles.PutRequests == 0 && s.UserFiles.UploadBytes == 0 && s.UserFiles.FileCount == 0 &&
-		s.UserFiles.PutCost == 0 && s.NumPutRequests == 0
+		s.UserFiles.PutCost == 0 && s.LogFiles.PutRequests == 0 && s.LogFiles.UploadBytesUncompressed == 0 &&
+		s.LogFiles.LogChunksUploaded == 0
 }

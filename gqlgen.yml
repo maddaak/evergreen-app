@@ -490,6 +490,8 @@ models:
     model: github.com/evergreen-ci/evergreen/rest/model.APILogBuffering
   LogBufferingInput:
     model: github.com/evergreen-ci/evergreen/rest/model.APILogBuffering
+  LogFilesMetrics:
+    model: github.com/evergreen-ci/evergreen/model/s3usage.LogFilesMetrics
   LoggerConfig:
     model: github.com/evergreen-ci/evergreen/rest/model.APILoggerConfig
   LoggerConfigInput:

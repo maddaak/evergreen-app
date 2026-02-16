@@ -25,7 +25,15 @@ func TestS3Usage(t *testing.T) {
 		assert.False(t, s3Usage.IsZero())
 
 		s3Usage = S3Usage{}
-		s3Usage.NumPutRequests = 5
+		s3Usage.LogFiles.PutRequests = 5
+		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.LogFiles.UploadBytesUncompressed = 1024
+		assert.False(t, s3Usage.IsZero())
+
+		s3Usage = S3Usage{}
+		s3Usage.LogFiles.LogChunksUploaded = 3
 		assert.False(t, s3Usage.IsZero())
 
 		s3Usage = S3Usage{}
@@ -50,15 +58,21 @@ func TestS3Usage(t *testing.T) {
 		assert.Equal(t, 5, s3Usage.UserFiles.FileCount)
 	})
 
-	t.Run("IncrementPutRequests", func(t *testing.T) {
+	t.Run("IncrementLogFiles", func(t *testing.T) {
 		s3Usage := S3Usage{}
-		assert.Equal(t, 0, s3Usage.NumPutRequests)
+		assert.Equal(t, 0, s3Usage.LogFiles.PutRequests)
+		assert.Equal(t, int64(0), s3Usage.LogFiles.UploadBytesUncompressed)
+		assert.Equal(t, 0, s3Usage.LogFiles.LogChunksUploaded)
 
-		s3Usage.IncrementPutRequests(5)
-		assert.Equal(t, 5, s3Usage.NumPutRequests)
+		s3Usage.IncrementLogFiles(1, 5000, 1)
+		assert.Equal(t, 1, s3Usage.LogFiles.PutRequests)
+		assert.Equal(t, int64(5000), s3Usage.LogFiles.UploadBytesUncompressed)
+		assert.Equal(t, 1, s3Usage.LogFiles.LogChunksUploaded)
 
-		s3Usage.IncrementPutRequests(10)
-		assert.Equal(t, 15, s3Usage.NumPutRequests)
+		s3Usage.IncrementLogFiles(1, 3000, 1)
+		assert.Equal(t, 2, s3Usage.LogFiles.PutRequests)
+		assert.Equal(t, int64(8000), s3Usage.LogFiles.UploadBytesUncompressed)
+		assert.Equal(t, 2, s3Usage.LogFiles.LogChunksUploaded)
 	})
 }
 
@@ -286,12 +300,16 @@ func TestCalculateAndSetUserFilesCost(t *testing.T) {
 		assert.Equal(t, 0.0, s3Usage.UserFiles.PutCost)
 	})
 
-	t.Run("DoesNotAffectNumPutRequests", func(t *testing.T) {
+	t.Run("DoesNotAffectLogFiles", func(t *testing.T) {
 		s3Usage := S3Usage{}
 		s3Usage.UserFiles.PutRequests = 1000
-		s3Usage.NumPutRequests = 500
+		s3Usage.LogFiles.PutRequests = 500
+		s3Usage.LogFiles.UploadBytesUncompressed = 10000
+		s3Usage.LogFiles.LogChunksUploaded = 500
 		require.NoError(t, s3Usage.CalculateAndSetUserFilesCost(validConfig))
 		assert.InDelta(t, 0.0035, s3Usage.UserFiles.PutCost, 0.000001)
-		assert.Equal(t, 500, s3Usage.NumPutRequests)
+		assert.Equal(t, 500, s3Usage.LogFiles.PutRequests)
+		assert.Equal(t, int64(10000), s3Usage.LogFiles.UploadBytesUncompressed)
+		assert.Equal(t, 500, s3Usage.LogFiles.LogChunksUploaded)
 	})
 }
