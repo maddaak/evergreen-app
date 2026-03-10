@@ -15,6 +15,7 @@ import (
 	"github.com/mongodb/anser/bsonutil"
 	adb "github.com/mongodb/anser/db"
 	"github.com/mongodb/grip"
+	"github.com/mongodb/grip/message"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -403,7 +404,11 @@ func FindSubscriptionsByAttributes(ctx context.Context, resourceType string, eve
 		return nil, errors.Wrap(err, "finding subscriptions for selectors")
 	}
 
-	return filterRegexSelectors(selectorFiltered, eventAttributes), nil
+	filtered := filterRegexSelectors(selectorFiltered, eventAttributes)
+	if err := populateWebhookSecrets(ctx, filtered); err != nil {
+		return nil, errors.Wrap(err, "populating webhook secrets")
+	}
+	return filtered, nil
 }
 
 func filterRegexSelectors(subscriptions []Subscription, eventAttributes Attributes) []Subscription {
@@ -472,6 +477,11 @@ func (s *Subscription) Upsert(ctx context.Context) error {
 	if s.ID == "" {
 		s.ID = mgobson.NewObjectId().Hex()
 	}
+
+	if err := s.saveWebhookSecretIfNeeded(ctx); err != nil {
+		return errors.Wrap(err, "saving webhook secret to Parameter Store")
+	}
+
 	update := bson.M{
 		subscriptionResourceTypeKey:   s.ResourceType,
 		subscriptionTriggerKey:        s.Trigger,
@@ -529,12 +539,28 @@ func FindSubscriptionByID(ctx context.Context, id string) (*Subscription, error)
 		return nil, errors.Wrap(err, "fetching subcription by ID")
 	}
 
+	if err := populateWebhookSecrets(ctx, []Subscription{out}); err != nil {
+		return nil, errors.Wrap(err, "populating webhook secret")
+	}
+
 	return &out, nil
 }
 
 func RemoveSubscription(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("id is not valid, cannot remove")
+	}
+
+	sub, err := FindSubscriptionByID(ctx, id)
+	if err != nil {
+		return errors.Wrapf(err, "finding subscription '%s' for removal", id)
+	}
+	if sub != nil {
+		if webhookSub, ok := sub.Subscriber.Target.(*WebhookSubscriber); ok && webhookSub.SecretParameter != "" {
+			if err := deleteWebhookSecretFromParameterStore(ctx, webhookSub.SecretParameter); err != nil {
+				return errors.Wrapf(err, "deleting webhook secret for subscription '%s'", id)
+			}
+		}
 	}
 
 	return db.Remove(ctx, SubscriptionsCollection, bson.M{
@@ -699,8 +725,13 @@ func FindSubscriptionsByOwner(ctx context.Context, owner string, ownerType Owner
 		subscriptionOwnerTypeKey: ownerType,
 	})
 	subscriptions := []Subscription{}
-	err := db.FindAllQ(ctx, SubscriptionsCollection, query, &subscriptions)
-	return subscriptions, errors.Wrapf(err, "retrieving subscriptions for owner '%s'", owner)
+	if err := db.FindAllQ(ctx, SubscriptionsCollection, query, &subscriptions); err != nil {
+		return nil, errors.Wrapf(err, "retrieving subscriptions for owner '%s'", owner)
+	}
+	if err := populateWebhookSecrets(ctx, subscriptions); err != nil {
+		return nil, errors.Wrap(err, "populating webhook secrets")
+	}
+	return subscriptions, nil
 }
 
 func IsValidOwnerType(in string) bool {
@@ -956,4 +987,123 @@ func NewSpawnHostOutcomeByOwner(owner string, sub Subscriber) Subscription {
 		},
 		Subscriber: sub,
 	}
+}
+
+// saveWebhookSecretIfNeeded saves the webhook secret to Parameter Store and
+// clears the in-memory Secret field so it is not persisted to MongoDB. This
+// is a no-op for non-webhook subscriptions.
+func (s *Subscription) saveWebhookSecretIfNeeded(ctx context.Context) error {
+	if s.Subscriber.Type != EvergreenWebhookSubscriberType {
+		return nil
+	}
+
+	webhookSub, ok := s.Subscriber.Target.(*WebhookSubscriber)
+	if !ok {
+		return nil
+	}
+	if len(webhookSub.Secret) == 0 {
+		return nil
+	}
+
+	paramName, err := saveWebhookSecretToParameterStore(ctx, s.ID, webhookSub.Secret)
+	if err != nil {
+		return err
+	}
+
+	webhookSub.SecretParameter = paramName
+	webhookSub.Secret = nil
+	return nil
+}
+
+// populateWebhookSecrets loads webhook secrets from Parameter Store for the
+// given subscriptions. For legacy subscriptions that have not been migrated, it
+// falls back to the Secret field stored in MongoDB and emits a warning for
+// monitoring.
+func populateWebhookSecrets(ctx context.Context, subscriptions []Subscription) error {
+	for i := range subscriptions {
+		if subscriptions[i].Subscriber.Type != EvergreenWebhookSubscriberType {
+			continue
+		}
+
+		webhookSub, ok := subscriptions[i].Subscriber.Target.(*WebhookSubscriber)
+		if !ok {
+			continue
+		}
+
+		if webhookSub.SecretParameter != "" {
+			secret, err := getWebhookSecretFromParameterStore(ctx, webhookSub.SecretParameter)
+			if err != nil {
+				return errors.Wrapf(err, "getting webhook secret for subscription '%s'", subscriptions[i].ID)
+			}
+			webhookSub.Secret = secret
+		} else if len(webhookSub.Secret) > 0 {
+			grip.Info(message.Fields{
+				"message":         "webhook secret fallback to MongoDB",
+				"subscription_id": subscriptions[i].ID,
+				"source":          "webhook-secret-migration",
+			})
+		}
+	}
+	return nil
+}
+
+// getWebhookSecretParameterPath returns the Parameter Store path for a
+// webhook subscription's secret.
+func getWebhookSecretParameterPath(subscriptionID string) string {
+	hashedID := util.GetSHA256Hash(subscriptionID)
+	return fmt.Sprintf("webhooks/%s/secret", hashedID)
+}
+
+// saveWebhookSecretToParameterStore saves a webhook secret to Parameter Store
+// and returns the full parameter name.
+func saveWebhookSecretToParameterStore(ctx context.Context, subscriptionID string, secret []byte) (string, error) {
+	if len(secret) == 0 {
+		return "", errors.New("cannot save empty webhook secret")
+	}
+
+	paramMgr := evergreen.GetEnvironment().ParameterManager()
+	paramPath := getWebhookSecretParameterPath(subscriptionID)
+
+	param, err := paramMgr.Put(ctx, paramPath, string(secret))
+	if err != nil {
+		return "", errors.Wrapf(err, "putting webhook secret for subscription '%s' into Parameter Store", subscriptionID)
+	}
+
+	return param.Name, nil
+}
+
+// getWebhookSecretFromParameterStore retrieves a webhook secret from Parameter
+// Store by its parameter name.
+func getWebhookSecretFromParameterStore(ctx context.Context, parameterName string) ([]byte, error) {
+	if parameterName == "" {
+		return nil, errors.New("parameter name is empty")
+	}
+
+	paramMgr := evergreen.GetEnvironment().ParameterManager()
+
+	params, err := paramMgr.GetStrict(ctx, parameterName)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting webhook secret from Parameter Store for parameter '%s'", parameterName)
+	}
+	if len(params) == 0 {
+		return nil, errors.Errorf("webhook secret not found in Parameter Store for parameter '%s'", parameterName)
+	}
+
+	return []byte(params[0].Value), nil
+}
+
+// deleteWebhookSecretFromParameterStore deletes a webhook secret from Parameter
+// Store.
+func deleteWebhookSecretFromParameterStore(ctx context.Context, parameterName string) error {
+	if parameterName == "" {
+		return nil
+	}
+
+	paramMgr := evergreen.GetEnvironment().ParameterManager()
+
+	if err := paramMgr.Delete(ctx, parameterName); err != nil {
+		return errors.Wrapf(err, "deleting webhook secret from Parameter Store for parameter '%s'", parameterName)
+	}
+
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/evergreen-ci/evergreen"
+	"github.com/evergreen-ci/evergreen/cloud/parameterstore/fakeparameter"
 	"github.com/evergreen-ci/evergreen/db"
 	mgobson "github.com/evergreen-ci/evergreen/db/mgo/bson"
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,7 @@ type subscriptionsSuite struct {
 }
 
 func (s *subscriptionsSuite) SetupTest() {
-	s.NoError(db.ClearCollections(SubscriptionsCollection))
+	s.NoError(db.ClearCollections(SubscriptionsCollection, fakeparameter.Collection))
 
 	t1 := "someone@example.com"
 	t2 := "someone2@example.com"
@@ -558,6 +559,194 @@ func (s *subscriptionsSuite) TestCreateOrUpdateGeneralSubscription() {
 	s.NoError(err)
 	s.Require().Len(subscriptions, 1)
 	s.Equal(subscriptions[0].ID, subscription.ID)
+}
+
+func (s *subscriptionsSuite) TestUpsertWebhookSavesSecretToParameterStore() {
+	webhookSub := &WebhookSubscriber{
+		URL:    "https://example.com/webhook",
+		Secret: []byte("my-secret"),
+	}
+	sub := Subscription{
+		ID:           "webhook-sub",
+		ResourceType: "PATCH",
+		Trigger:      "outcome",
+		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
+		Filter:       Filter{ID: "test"},
+		Subscriber: Subscriber{
+			Type:   EvergreenWebhookSubscriberType,
+			Target: webhookSub,
+		},
+		Owner:     "me",
+		OwnerType: OwnerTypePerson,
+	}
+	s.Require().NoError(sub.Upsert(s.T().Context()))
+
+	// Secret should have been saved to Parameter Store.
+	s.Require().NotEmpty(webhookSub.SecretParameter)
+	fakeParams, err := fakeparameter.FindByIDs(s.T().Context(), webhookSub.SecretParameter)
+	s.Require().NoError(err)
+	s.Require().Len(fakeParams, 1)
+	s.Equal("my-secret", fakeParams[0].Value)
+
+	// Secret should NOT be persisted in MongoDB.
+	raw := bson.M{}
+	s.Require().NoError(db.FindOneQ(s.T().Context(), SubscriptionsCollection, db.Query(bson.M{"_id": "webhook-sub"}), &raw))
+	subscriberRaw, ok := raw["subscriber"].(bson.M)
+	s.Require().True(ok)
+	targetRaw, ok := subscriberRaw["target"].(bson.M)
+	s.Require().True(ok)
+	s.Nil(targetRaw["secret"], "secret should not be stored in MongoDB")
+	s.NotEmpty(targetRaw["secret_parameter"], "secret_parameter path should be stored in MongoDB")
+}
+
+func (s *subscriptionsSuite) TestUpsertNonWebhookDoesNotTouchParameterStore() {
+	t1 := "someone@example.com"
+	sub := Subscription{
+		ID:           "email-sub",
+		ResourceType: "PATCH",
+		Trigger:      "outcome",
+		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
+		Filter:       Filter{ID: "test"},
+		Subscriber: Subscriber{
+			Type:   EmailSubscriberType,
+			Target: &t1,
+		},
+		Owner:     "me",
+		OwnerType: OwnerTypePerson,
+	}
+	s.Require().NoError(sub.Upsert(s.T().Context()))
+
+	// No parameters should exist in the fake parameter store.
+	allParams, err := fakeparameter.FindByIDs(s.T().Context())
+	s.Require().NoError(err)
+	s.Empty(allParams)
+}
+
+func (s *subscriptionsSuite) TestFindSubscriptionByIDPopulatesSecretFromParameterStore() {
+	webhookSub := &WebhookSubscriber{
+		URL:    "https://example.com/webhook",
+		Secret: []byte("ps-secret"),
+	}
+	sub := Subscription{
+		ID:           "webhook-find",
+		ResourceType: "PATCH",
+		Trigger:      "outcome",
+		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
+		Filter:       Filter{ID: "test"},
+		Subscriber: Subscriber{
+			Type:   EvergreenWebhookSubscriberType,
+			Target: webhookSub,
+		},
+		Owner:     "me",
+		OwnerType: OwnerTypePerson,
+	}
+	s.Require().NoError(sub.Upsert(s.T().Context()))
+
+	found, err := FindSubscriptionByID(s.T().Context(), "webhook-find")
+	s.Require().NoError(err)
+	s.Require().NotNil(found)
+	foundWebhook, ok := found.Subscriber.Target.(*WebhookSubscriber)
+	s.Require().True(ok)
+	s.Equal([]byte("ps-secret"), foundWebhook.Secret)
+	s.NotEmpty(foundWebhook.SecretParameter)
+}
+
+func (s *subscriptionsSuite) TestFindSubscriptionByIDFallsBackToMongoDBSecret() {
+	// Simulate a legacy subscription with secret in MongoDB but no SecretParameter.
+	// Insert directly to bypass the Upsert write path which saves to PS.
+	raw := bson.M{
+		"_id":     "legacy-webhook",
+		"type":    "PATCH",
+		"trigger": "outcome",
+		"filter":  bson.M{"id": "test"},
+		"subscriber": bson.M{
+			"type": EvergreenWebhookSubscriberType,
+			"target": bson.M{
+				"url":    "https://legacy.example.com",
+				"secret": []byte("legacy-secret"),
+			},
+		},
+		"owner":      "me",
+		"owner_type": string(OwnerTypePerson),
+	}
+	_, err := evergreen.GetEnvironment().DB().Collection(SubscriptionsCollection).InsertOne(s.T().Context(), raw)
+	s.Require().NoError(err)
+
+	found, err := FindSubscriptionByID(s.T().Context(), "legacy-webhook")
+	s.Require().NoError(err)
+	s.Require().NotNil(found)
+	foundWebhook, ok := found.Subscriber.Target.(*WebhookSubscriber)
+	s.Require().True(ok)
+	s.Equal([]byte("legacy-secret"), foundWebhook.Secret, "should fall back to MongoDB secret")
+	s.Empty(foundWebhook.SecretParameter, "legacy subscription should not have a parameter path")
+}
+
+func (s *subscriptionsSuite) TestFindSubscriptionsByOwnerPopulatesSecrets() {
+	webhookSub := &WebhookSubscriber{
+		URL:    "https://example.com/webhook",
+		Secret: []byte("owner-secret"),
+	}
+	sub := Subscription{
+		ID:           "webhook-owner",
+		ResourceType: "PATCH",
+		Trigger:      "outcome",
+		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
+		Filter:       Filter{ID: "test"},
+		Subscriber: Subscriber{
+			Type:   EvergreenWebhookSubscriberType,
+			Target: webhookSub,
+		},
+		Owner:     "webhook-owner-user",
+		OwnerType: OwnerTypePerson,
+	}
+	s.Require().NoError(sub.Upsert(s.T().Context()))
+
+	subs, err := FindSubscriptionsByOwner(s.T().Context(), "webhook-owner-user", OwnerTypePerson)
+	s.Require().NoError(err)
+	s.Require().Len(subs, 1)
+	foundWebhook, ok := subs[0].Subscriber.Target.(*WebhookSubscriber)
+	s.Require().True(ok)
+	s.Equal([]byte("owner-secret"), foundWebhook.Secret)
+}
+
+func (s *subscriptionsSuite) TestRemoveSubscriptionCleansUpParameterStore() {
+	webhookSub := &WebhookSubscriber{
+		URL:    "https://example.com/webhook",
+		Secret: []byte("delete-me-secret"),
+	}
+	sub := Subscription{
+		ID:           "webhook-delete",
+		ResourceType: "PATCH",
+		Trigger:      "outcome",
+		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
+		Filter:       Filter{ID: "test"},
+		Subscriber: Subscriber{
+			Type:   EvergreenWebhookSubscriberType,
+			Target: webhookSub,
+		},
+		Owner:     "me",
+		OwnerType: OwnerTypePerson,
+	}
+	s.Require().NoError(sub.Upsert(s.T().Context()))
+	paramName := webhookSub.SecretParameter
+	s.Require().NotEmpty(paramName)
+
+	// Verify secret exists in PS before deletion.
+	fakeParams, err := fakeparameter.FindByIDs(s.T().Context(), paramName)
+	s.Require().NoError(err)
+	s.Require().Len(fakeParams, 1)
+
+	s.Require().NoError(RemoveSubscription(s.T().Context(), "webhook-delete"))
+
+	// Verify subscription is removed from MongoDB.
+	found, err := FindSubscriptionByID(s.T().Context(), "webhook-delete")
+	s.Require().NoError(err)
+	s.Nil(found)
+
+	// Verify secret is removed from Parameter Store.
+	fakeParams, err = fakeparameter.FindByIDs(s.T().Context(), paramName)
+	s.Require().NoError(err)
+	s.Empty(fakeParams, "webhook secret should be deleted from Parameter Store")
 }
 
 func TestCopyProjectSubscriptions(t *testing.T) {
