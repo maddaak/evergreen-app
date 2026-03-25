@@ -52,6 +52,15 @@ const (
 	S3UploadMethodWriter S3UploadMethod = "writer"
 	S3UploadMethodPut    S3UploadMethod = "put"
 	S3UploadMethodCopy   S3UploadMethod = "copy"
+
+	// S3 Intelligent Tiering pricing and transition thresholds.
+	S3StandardPricePerGBMonth = 0.023
+	S3IAPricePerGBMonth       = 0.0125
+	S3ArchivePricePerGBMonth  = 0.004
+	S3TransitionToIADays      = 30
+	S3TransitionToArchiveDays = 90
+	S3BytesPerGB              = 1024 * 1024 * 1024
+	S3DaysPerMonth            = 30.0
 )
 
 // CalculateUploadMetrics populates file size and PUT requests for each uploaded file.
@@ -158,6 +167,54 @@ func CalculateS3PutCostWithConfig(putRequests int, costConfig *evergreen.CostCon
 	}
 
 	return float64(putRequests) * S3PutRequestCost * (1 - discount)
+}
+
+// CalculateS3StorageCostWithConfig calculates the S3 storage cost for uploadBytes over their retention period
+// using the bucket's Intelligent Tiering schedule. Returns 0 if config is missing or invalid.
+func CalculateS3StorageCostWithConfig(uploadBytes int64, expirationDays int, costConfig *evergreen.CostConfig) float64 {
+	if uploadBytes <= 0 {
+		return 0.0
+	}
+	if expirationDays <= 0 {
+		grip.Warning(message.Fields{
+			"message": "expiration days not configured, cannot calculate S3 storage cost",
+		})
+		return 0.0
+	}
+	if costConfig == nil {
+		grip.Warning(message.Fields{
+			"message": "cost config is not available to calculate S3 storage cost",
+		})
+		return 0.0
+	}
+
+	standardDiscount := costConfig.S3Cost.Storage.StandardStorageCostDiscount
+	iaDiscount := costConfig.S3Cost.Storage.IAStorageCostDiscount
+	archiveDiscount := costConfig.S3Cost.Storage.ArchiveStorageCostDiscount
+	for _, d := range []float64{standardDiscount, iaDiscount, archiveDiscount} {
+		if d < 0.0 || d > 1.0 {
+			grip.Warning(message.Fields{
+				"message":  "invalid S3 storage cost discount",
+				"discount": d,
+			})
+			return 0.0
+		}
+	}
+
+	// Intelligent Tiering transitions: Standard → IA at day 30, IA → Archive at day 90.
+	daysInStandard := min(expirationDays, S3TransitionToIADays)
+	daysInIA := max(0, min(expirationDays, S3TransitionToArchiveDays)-S3TransitionToIADays)
+	daysInArchive := max(0, expirationDays-S3TransitionToArchiveDays)
+
+	pricePerBytePerDay := func(pricePerGBMonth float64) float64 {
+		return pricePerGBMonth / S3BytesPerGB / S3DaysPerMonth
+	}
+
+	standardCost := float64(daysInStandard) * pricePerBytePerDay(S3StandardPricePerGBMonth) * (1 - standardDiscount)
+	iaCost := float64(daysInIA) * pricePerBytePerDay(S3IAPricePerGBMonth) * (1 - iaDiscount)
+	archiveCost := float64(daysInArchive) * pricePerBytePerDay(S3ArchivePricePerGBMonth) * (1 - archiveDiscount)
+
+	return float64(uploadBytes) * (standardCost + iaCost + archiveCost)
 }
 
 // IncrementArtifacts increments the artifact upload metrics (from s3.put commands).
