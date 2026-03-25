@@ -282,17 +282,4 @@ func TestCalculateS3StorageCostWithConfig(t *testing.T) {
 		assert.Equal(t, 0.0, cost)
 	})
 
-	t.Run("InvalidDiscount", func(t *testing.T) {
-		invalidConfig := &evergreen.CostConfig{
-			S3Cost: evergreen.S3CostConfig{
-				Storage: evergreen.S3StorageCostConfig{
-					StandardStorageCostDiscount: 1.5,
-					IAStorageCostDiscount:       0.312,
-					ArchiveStorageCostDiscount:  0.265,
-				},
-			},
-		}
-		cost := CalculateS3StorageCostWithConfig(GB, 365, invalidConfig)
-		assert.Equal(t, 0.0, cost)
-	})
 }

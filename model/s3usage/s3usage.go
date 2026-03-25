@@ -170,7 +170,9 @@ func CalculateS3PutCostWithConfig(putRequests int, costConfig *evergreen.CostCon
 }
 
 // CalculateS3StorageCostWithConfig calculates the S3 storage cost for uploadBytes over their retention period
-// using the bucket's Intelligent Tiering schedule. Returns 0 if config is missing or invalid.
+// using the bucket's Intelligent Tiering schedule. expirationDays must be positive; buckets without a
+// lifecycle expiration policy have no defined retention period and cannot have their cost calculated, so
+// this function returns 0 for them. Returns 0 if config is nil.
 func CalculateS3StorageCostWithConfig(uploadBytes int64, expirationDays int, costConfig *evergreen.CostConfig) float64 {
 	if uploadBytes <= 0 {
 		return 0.0
@@ -191,17 +193,9 @@ func CalculateS3StorageCostWithConfig(uploadBytes int64, expirationDays int, cos
 	standardDiscount := costConfig.S3Cost.Storage.StandardStorageCostDiscount
 	iaDiscount := costConfig.S3Cost.Storage.IAStorageCostDiscount
 	archiveDiscount := costConfig.S3Cost.Storage.ArchiveStorageCostDiscount
-	for _, d := range []float64{standardDiscount, iaDiscount, archiveDiscount} {
-		if d < 0.0 || d > 1.0 {
-			grip.Warning(message.Fields{
-				"message":  "invalid S3 storage cost discount",
-				"discount": d,
-			})
-			return 0.0
-		}
-	}
 
-	// Intelligent Tiering transitions: Standard → IA at day 30, IA → Archive at day 90.
+	// Each variable represents how many days the object spends in that Intelligent Tiering tier:
+	// Standard (days 0–30), Infrequent Access (days 30–90), Archive (days 90+).
 	daysInStandard := min(expirationDays, S3TransitionToIADays)
 	daysInIA := max(0, min(expirationDays, S3TransitionToArchiveDays)-S3TransitionToIADays)
 	daysInArchive := max(0, expirationDays-S3TransitionToArchiveDays)
