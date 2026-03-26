@@ -149,9 +149,9 @@ func GetManager(ctx context.Context, env evergreen.Environment, mgrOpts ManagerO
 
 	switch mgrOpts.Provider {
 	case evergreen.ProviderNameEc2OnDemand:
-		provider = &ec2Manager{
+		provider = &ec2FleetManager{
 			env: env,
-			EC2ManagerOptions: &EC2ManagerOptions{
+			EC2FleetManagerOptions: &EC2FleetManagerOptions{
 				client:  &awsClientImpl{},
 				account: mgrOpts.Account,
 				region:  mgrOpts.Region,

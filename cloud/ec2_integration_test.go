@@ -62,13 +62,13 @@ func TestSpawnEC2InstanceOnDemand(t *testing.T) {
 	testutil.ConfigureIntegrationTest(t, testConfig)
 	require.NoError(db.Clear(host.Collection))
 
-	opts := &EC2ManagerOptions{
-		client: &awsClientImpl{},
+	m := &ec2FleetManager{
+		env: env,
+		EC2FleetManagerOptions: &EC2FleetManagerOptions{
+			client: &awsClientImpl{},
+		},
 	}
-
-	m := &ec2Manager{env: env, EC2ManagerOptions: opts}
 	require.NoError(m.Configure(ctx, testConfig))
-	require.NoError(m.setupClient(ctx))
 
 	d := fetchTestDistro()
 	h := host.NewIntent(host.CreateOptions{
@@ -88,7 +88,8 @@ func TestSpawnEC2InstanceOnDemand(t *testing.T) {
 		},
 	})
 	h, err := m.SpawnHost(ctx, h)
-	assert.NoError(err)
+	require.NoError(err)
+	require.NotNil(h)
 	assert.NoError(h.Insert(ctx))
 	foundHosts, err := host.Find(ctx, host.IsUninitialized)
 	assert.NoError(err)
