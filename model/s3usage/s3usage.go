@@ -177,6 +177,8 @@ func CalculateS3StorageCostWithConfig(uploadBytes int64, expirationDays int, cos
 	if uploadBytes <= 0 {
 		return 0.0
 	}
+	// TODO (DEVPROD-26465): callers must always supply a positive expirationDays derived from the
+	// bucket's actual lifecycle rule. Passing 0 silently skips cost calculation.
 	if expirationDays <= 0 {
 		grip.Warning(message.Fields{
 			"message": "expiration days not configured, cannot calculate S3 storage cost",
