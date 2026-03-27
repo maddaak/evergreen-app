@@ -60,6 +60,12 @@ func TestSpawnEC2InstanceOnDemand(t *testing.T) {
 	testConfig.SSH.TaskHostKey.Name = "evergreen-task-hosts"
 
 	testutil.ConfigureIntegrationTest(t, testConfig)
+	// ec2FleetManager.makeOverrides requires at least one subnet in the global
+	// AWS settings. Populate it with the distro's subnet so the fleet manager
+	// can resolve overrides without error.
+	testConfig.Providers.AWS.Subnets = []evergreen.Subnet{
+		{AZ: "us-east-1a", SubnetID: "subnet-517c941a"},
+	}
 	require.NoError(db.Clear(host.Collection))
 
 	m := &ec2FleetManager{
