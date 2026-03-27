@@ -148,7 +148,7 @@ func (a *Agent) removeTaskDirectory(ctx context.Context, tc *taskContext) {
 		grip.Critical(errors.Wrapf(err, "getting absolute path for task directory '%s'", dir))
 		return
 	}
-	if err := a.removeAllAndCheck(ctx, abs); err != nil {
+	if err := a.removeAllAndCheck(ctx, abs, tc.taskConfig.Task.Id); err != nil {
 		grip.Critical(errors.Wrapf(err, "removing task directory '%s'", dir))
 	} else {
 		grip.Info(message.Fields{
@@ -158,10 +158,14 @@ func (a *Agent) removeTaskDirectory(ctx context.Context, tc *taskContext) {
 	}
 }
 
+const maxRemovalAttempts = 5
+
+var removalRetryDelay = time.Second
+
 // removeAllAndCheck removes the directory and checks the data directory
 // usage afterwards. If the data directory is unhealthy, the host is disabled.
-func (a *Agent) removeAllAndCheck(ctx context.Context, dir string) error {
-	removeErr := a.removeAll(dir)
+func (a *Agent) removeAllAndCheck(ctx context.Context, dir, taskID string) error {
+	removeErr := a.removeAll(ctx, dir, taskID)
 	if removeErr == nil {
 		return nil
 	}
@@ -181,8 +185,9 @@ func (a *Agent) removeAllAndCheck(ctx context.Context, dir string) error {
 // removeAll is the same as os.RemoveAll, but recursively changes permissions
 // for subdirectories and contents before removing. The permissions change fixes
 // an issue where some files may be marked read-only, which prevents
-// os.RemoveAll from deleting them.
-func (a *Agent) removeAll(dir string) error {
+// os.RemoveAll from deleting them. Removal is retried to handle background
+// processes that may still be writing to the directory.
+func (a *Agent) removeAll(ctx context.Context, dir, taskID string) error {
 	grip.Error(errors.Wrapf(filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -190,7 +195,38 @@ func (a *Agent) removeAll(dir string) error {
 		grip.Error(errors.Wrapf(os.Chmod(path, 0777), "changing permission before removal for path '%s'", path))
 		return nil
 	}), "recursively walking through path to change permissions"))
-	return os.RemoveAll(dir)
+
+	removeFn := a.removeFunc
+	if removeFn == nil {
+		removeFn = os.RemoveAll
+	}
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
+	var removeErr error
+	for i := 1; i <= maxRemovalAttempts; i++ {
+		select {
+		case <-ctx.Done():
+			return errors.Errorf("context canceled while removing directory '%s'", dir)
+		case <-timer.C:
+			removeErr = removeFn(dir)
+			if removeErr == nil {
+				return nil
+			}
+			if i < maxRemovalAttempts {
+				grip.Warning(message.WrapError(removeErr, message.Fields{
+					"message":      "failed to remove task directory, will retry",
+					"directory":    dir,
+					"task_id":      taskID,
+					"attempt":      i,
+					"max_attempts": maxRemovalAttempts,
+				}))
+				timer.Reset(removalRetryDelay)
+			}
+		}
+	}
+	return removeErr
 }
 
 // tryCleanupDirectory is a very conservative function that attempts
@@ -271,7 +307,7 @@ func (a *Agent) tryCleanupDirectory(ctx context.Context, dir string) {
 
 	grip.Infof("Attempting to clean up directory '%s'.", dir)
 	for _, p := range paths {
-		if err = a.removeAllAndCheck(ctx, p); err != nil {
+		if err = a.removeAllAndCheck(ctx, p, ""); err != nil {
 			grip.Critical(errors.Wrapf(err, "removing path '%s'", p))
 		}
 	}
