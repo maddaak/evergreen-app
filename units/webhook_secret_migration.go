@@ -126,6 +126,17 @@ func (j *webhookSecretMigrationJob) Run(ctx context.Context) {
 		return
 	}
 
+	// Validate that the value in Parameter Store matches the original DB secret.
+	validated, err := paramMgr.GetStrict(ctx, param.Name)
+	if err != nil || len(validated) == 0 {
+		j.AddError(errors.Wrapf(err, "validating webhook secret in Parameter Store for subscription '%s'", j.SubscriptionID))
+		return
+	}
+	if validated[0].Value != string(webhookSub.Secret) {
+		j.AddError(errors.Errorf("webhook secret mismatch for subscription '%s': Parameter Store value does not match DB", j.SubscriptionID))
+		return
+	}
+
 	grip.Info(message.Fields{
 		"message":         "successfully migrated webhook secret to Parameter Store",
 		"subscription_id": j.SubscriptionID,

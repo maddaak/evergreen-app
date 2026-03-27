@@ -588,14 +588,14 @@ func (s *subscriptionsSuite) TestUpsertWebhookSavesSecretToParameterStore() {
 	s.Require().Len(fakeParams, 1)
 	s.Equal("my-secret", fakeParams[0].Value)
 
-	// Secret should NOT be persisted in MongoDB.
+	// Phase 1: secret is kept in MongoDB as a fallback until Phase 2 cleanup runs.
 	raw := bson.M{}
 	s.Require().NoError(db.FindOneQ(s.T().Context(), SubscriptionsCollection, db.Query(bson.M{"_id": "webhook-sub"}), &raw))
 	subscriberRaw, ok := raw["subscriber"].(bson.M)
 	s.Require().True(ok)
 	targetRaw, ok := subscriberRaw["target"].(bson.M)
 	s.Require().True(ok)
-	s.Nil(targetRaw["secret"], "secret should not be stored in MongoDB")
+	s.NotNil(targetRaw["secret"], "secret should be kept in MongoDB for Phase 2 cleanup")
 	s.NotEmpty(targetRaw["secret_parameter"], "secret_parameter path should be stored in MongoDB")
 }
 

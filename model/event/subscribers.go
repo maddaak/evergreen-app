@@ -122,8 +122,11 @@ func (s *Subscriber) Validate() error {
 }
 
 type WebhookSubscriber struct {
-	URL             string          `bson:"url"`
-	Secret          []byte          `bson:"secret,omitempty"` // Deprecated: kept for backward compatibility until migration is complete.
+	URL string `bson:"url"`
+	// Secret is kept with bson:"secret,omitempty" (not bson:"-") intentionally: Phase 1 keeps the
+	// secret in DB so populateWebhookSecrets can fall back to it if Parameter Store is unavailable.
+	// Phase 2 cleanup removes this field once migration is fully verified.
+	Secret          []byte          `bson:"secret,omitempty"`
 	SecretParameter string          `bson:"secret_parameter,omitempty"`
 	Retries         int             `bson:"retries"`
 	MinDelayMS      int             `bson:"min_delay_ms"`

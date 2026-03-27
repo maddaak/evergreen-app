@@ -7,7 +7,6 @@ import (
 	"github.com/evergreen-ci/evergreen/db"
 	"github.com/evergreen-ci/evergreen/mock"
 	"github.com/evergreen-ci/evergreen/model/event"
-	"github.com/evergreen-ci/evergreen/util"
 	"github.com/mongodb/amboy/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,8 +30,8 @@ func insertUnmigratedWebhookSubscription(t *testing.T, id string, secret string)
 	t.Helper()
 	doc := bson.M{
 		"_id":           id,
-		"resource_type": "PATCH",
-		"trigger":       "outcome",
+		"resource_type": event.ResourceTypePatch,
+		"trigger":       event.TriggerOutcome,
 		"selectors":     bson.A{bson.M{"type": "id", "data": "test"}},
 		"subscriber": bson.M{
 			"type": event.EvergreenWebhookSubscriberType,
@@ -192,8 +191,8 @@ func TestFindUnmigratedWebhookSubscriptionIDs(t *testing.T) {
 
 	migratedDoc := bson.M{
 		"_id":           "already-migrated",
-		"resource_type": "PATCH",
-		"trigger":       "outcome",
+		"resource_type": event.ResourceTypePatch,
+		"trigger":       event.TriggerOutcome,
 		"selectors":     bson.A{bson.M{"type": "id", "data": "test"}},
 		"subscriber": bson.M{
 			"type": event.EvergreenWebhookSubscriberType,
@@ -223,9 +222,8 @@ func TestFindUnmigratedWebhookSubscriptionIDs(t *testing.T) {
 
 func TestWebhookSecretMigrationParameterPath(t *testing.T) {
 	subscriptionID := "test-sub-id"
-	expected := event.GetWebhookSecretParameterPath(subscriptionID)
-	actual := "webhooks/" + util.GetSHA256Hash(subscriptionID) + "/secret"
-	assert.Equal(t, expected, actual)
+	expected := "webhooks/" + subscriptionID + "/secret"
+	assert.Equal(t, expected, event.GetWebhookSecretParameterPath(subscriptionID))
 }
 
 // insertMigratedWebhookSubscription inserts a subscription that has both a
@@ -234,8 +232,8 @@ func insertMigratedWebhookSubscription(t *testing.T, id, secret, paramPath strin
 	t.Helper()
 	doc := bson.M{
 		"_id":           id,
-		"resource_type": "PATCH",
-		"trigger":       "outcome",
+		"resource_type": event.ResourceTypePatch,
+		"trigger":       event.TriggerOutcome,
 		"selectors":     bson.A{bson.M{"type": "id", "data": "test"}},
 		"subscriber": bson.M{
 			"type": event.EvergreenWebhookSubscriberType,
