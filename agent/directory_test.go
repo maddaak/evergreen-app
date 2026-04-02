@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	"github.com/evergreen-ci/evergreen/agent/internal"
 	"github.com/evergreen-ci/evergreen/agent/internal/client"
 	"github.com/mongodb/jasper/mock"
-	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,60 +16,11 @@ import (
 func osExists(err error) bool { return !os.IsNotExist(err) }
 
 func TestRemoveAll(t *testing.T) {
-	originalDelay := removalRetryDelay
-	removalRetryDelay = 0
-	defer func() { removalRetryDelay = originalDelay }()
-
 	t.Run("SucceedsOnFirstAttempt", func(t *testing.T) {
 		dir := t.TempDir()
 		a := Agent{}
-		require.NoError(t, a.removeAll(t.Context(), dir, ""))
+		require.NoError(t, a.removeAll(t.Context(), dir))
 		assert.NoDirExists(t, dir)
-	})
-
-	t.Run("SucceedsAfterTransientFailure", func(t *testing.T) {
-		dir := t.TempDir()
-		attempts := 0
-		a := Agent{
-			removeFunc: func(path string) error {
-				attempts++
-				if attempts < 3 {
-					return errors.New("transient error: directory in use")
-				}
-				return os.RemoveAll(path)
-			},
-		}
-		require.NoError(t, a.removeAll(t.Context(), dir, "task1"))
-		assert.Equal(t, 3, attempts)
-		assert.NoDirExists(t, dir)
-	})
-
-	t.Run("ReturnsErrorAfterAllAttemptsFail", func(t *testing.T) {
-		attempts := 0
-		a := Agent{
-			removeFunc: func(_ string) error {
-				attempts++
-				return errors.New("persistent error")
-			},
-		}
-		err := a.removeAll(t.Context(), "/some/dir", "task1")
-		require.Error(t, err)
-		assert.Equal(t, maxRemovalAttempts, attempts)
-	})
-
-	t.Run("ContextCanceledStopsRetry", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		attempts := 0
-		a := Agent{
-			removeFunc: func(_ string) error {
-				attempts++
-				cancel()
-				return errors.New("removal failed")
-			},
-		}
-		err := a.removeAll(ctx, "/some/dir", "task1")
-		require.Error(t, err)
-		assert.Less(t, attempts, maxRemovalAttempts)
 	})
 }
 

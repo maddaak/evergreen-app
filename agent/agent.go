@@ -70,8 +70,6 @@ type Agent struct {
 	tracer              trace.Tracer
 	otelGrpcConn        *grpc.ClientConn
 	closers             []closerOp
-	// removeFunc is used to remove a directory. Defaults to os.RemoveAll.
-	removeFunc func(string) error
 }
 
 // Options contains startup options for an Agent.
