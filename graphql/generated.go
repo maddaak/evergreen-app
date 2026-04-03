@@ -2216,16 +2216,18 @@ type ComplexityRoot struct {
 	}
 
 	User struct {
-		BetaFeatures    func(childComplexity int) int
-		DisplayName     func(childComplexity int) int
-		EmailAddress    func(childComplexity int) int
-		ParsleyFilters  func(childComplexity int) int
-		ParsleySettings func(childComplexity int) int
-		Patches         func(childComplexity int, patchesInput PatchesInput) int
-		Permissions     func(childComplexity int) int
-		Settings        func(childComplexity int) int
-		Subscriptions   func(childComplexity int) int
-		UserID          func(childComplexity int) int
+		BetaFeatures              func(childComplexity int) int
+		DisplayName               func(childComplexity int) int
+		EmailAddress              func(childComplexity int) int
+		HasTokenExchangePending   func(childComplexity int) int
+		ParsleyFilters            func(childComplexity int) int
+		ParsleySettings           func(childComplexity int) int
+		Patches                   func(childComplexity int, patchesInput PatchesInput) int
+		Permissions               func(childComplexity int) int
+		Settings                  func(childComplexity int) int
+		Subscriptions             func(childComplexity int) int
+		TokenAccessTokenExpiresAt func(childComplexity int) int
+		UserID                    func(childComplexity int) int
 	}
 
 	UserConfig struct {
@@ -2241,6 +2243,7 @@ type ComplexityRoot struct {
 	UserServiceFlags struct {
 		DebugSpawnHostDisabled func(childComplexity int) int
 		JWTTokenForCLIDisabled func(childComplexity int) int
+		StaticAPIKeysDisabled  func(childComplexity int) int
 	}
 
 	UserSettings struct {
@@ -11956,6 +11959,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.User.EmailAddress(childComplexity), true
+	case "User.hasTokenExchangePending":
+		if e.complexity.User.HasTokenExchangePending == nil {
+			break
+		}
+
+		return e.complexity.User.HasTokenExchangePending(childComplexity), true
 	case "User.parsleyFilters":
 		if e.complexity.User.ParsleyFilters == nil {
 			break
@@ -11997,6 +12006,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.User.Subscriptions(childComplexity), true
+	case "User.tokenAccessTokenExpiresAt":
+		if e.complexity.User.TokenAccessTokenExpiresAt == nil {
+			break
+		}
+
+		return e.complexity.User.TokenAccessTokenExpiresAt(childComplexity), true
 	case "User.userId":
 		if e.complexity.User.UserID == nil {
 			break
@@ -12059,6 +12074,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.UserServiceFlags.JWTTokenForCLIDisabled(childComplexity), true
+	case "UserServiceFlags.staticAPIKeysDisabled":
+		if e.complexity.UserServiceFlags.StaticAPIKeysDisabled == nil {
+			break
+		}
+
+		return e.complexity.UserServiceFlags.StaticAPIKeysDisabled(childComplexity), true
 
 	case "UserSettings.dateFormat":
 		if e.complexity.UserSettings.DateFormat == nil {
@@ -44475,6 +44496,8 @@ func (ec *executionContext) fieldContext_Patch_user(_ context.Context, field gra
 				return ec.fieldContext_User_displayName(ctx, field)
 			case "emailAddress":
 				return ec.fieldContext_User_emailAddress(ctx, field)
+			case "hasTokenExchangePending":
+				return ec.fieldContext_User_hasTokenExchangePending(ctx, field)
 			case "parsleyFilters":
 				return ec.fieldContext_User_parsleyFilters(ctx, field)
 			case "parsleySettings":
@@ -44485,6 +44508,8 @@ func (ec *executionContext) fieldContext_Patch_user(_ context.Context, field gra
 				return ec.fieldContext_User_permissions(ctx, field)
 			case "settings":
 				return ec.fieldContext_User_settings(ctx, field)
+			case "tokenAccessTokenExpiresAt":
+				return ec.fieldContext_User_tokenAccessTokenExpiresAt(ctx, field)
 			case "subscriptions":
 				return ec.fieldContext_User_subscriptions(ctx, field)
 			case "userId":
@@ -52156,6 +52181,8 @@ func (ec *executionContext) fieldContext_Query_user(ctx context.Context, field g
 				return ec.fieldContext_User_displayName(ctx, field)
 			case "emailAddress":
 				return ec.fieldContext_User_emailAddress(ctx, field)
+			case "hasTokenExchangePending":
+				return ec.fieldContext_User_hasTokenExchangePending(ctx, field)
 			case "parsleyFilters":
 				return ec.fieldContext_User_parsleyFilters(ctx, field)
 			case "parsleySettings":
@@ -52166,6 +52193,8 @@ func (ec *executionContext) fieldContext_Query_user(ctx context.Context, field g
 				return ec.fieldContext_User_permissions(ctx, field)
 			case "settings":
 				return ec.fieldContext_User_settings(ctx, field)
+			case "tokenAccessTokenExpiresAt":
+				return ec.fieldContext_User_tokenAccessTokenExpiresAt(ctx, field)
 			case "subscriptions":
 				return ec.fieldContext_User_subscriptions(ctx, field)
 			case "userId":
@@ -59212,6 +59241,8 @@ func (ec *executionContext) fieldContext_SpruceConfig_serviceFlags(_ context.Con
 				return ec.fieldContext_UserServiceFlags_debugSpawnHostDisabled(ctx, field)
 			case "jwtTokenForCLIDisabled":
 				return ec.fieldContext_UserServiceFlags_jwtTokenForCLIDisabled(ctx, field)
+			case "staticAPIKeysDisabled":
+				return ec.fieldContext_UserServiceFlags_staticAPIKeysDisabled(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type UserServiceFlags", field.Name)
 		},
@@ -70810,6 +70841,35 @@ func (ec *executionContext) fieldContext_User_emailAddress(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _User_hasTokenExchangePending(ctx context.Context, field graphql.CollectedField, obj *model.APIDBUser) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_User_hasTokenExchangePending,
+		func(ctx context.Context) (any, error) {
+			return obj.HasTokenExchangePending, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_User_hasTokenExchangePending(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_parsleyFilters(ctx context.Context, field graphql.CollectedField, obj *model.APIDBUser) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -71020,6 +71080,35 @@ func (ec *executionContext) fieldContext_User_settings(_ context.Context, field 
 				return ec.fieldContext_UserSettings_timeFormat(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type UserSettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _User_tokenAccessTokenExpiresAt(ctx context.Context, field graphql.CollectedField, obj *model.APIDBUser) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_User_tokenAccessTokenExpiresAt,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenAccessTokenExpiresAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_User_tokenAccessTokenExpiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
 		},
 	}
 	return fc, nil
@@ -71350,6 +71439,35 @@ func (ec *executionContext) _UserServiceFlags_jwtTokenForCLIDisabled(ctx context
 }
 
 func (ec *executionContext) fieldContext_UserServiceFlags_jwtTokenForCLIDisabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "UserServiceFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _UserServiceFlags_staticAPIKeysDisabled(ctx context.Context, field graphql.CollectedField, obj *model.APIServiceFlags) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_UserServiceFlags_staticAPIKeysDisabled,
+		func(ctx context.Context) (any, error) {
+			return obj.StaticAPIKeysDisabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_UserServiceFlags_staticAPIKeysDisabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "UserServiceFlags",
 		Field:      field,
@@ -73488,6 +73606,8 @@ func (ec *executionContext) fieldContext_Version_user(_ context.Context, field g
 				return ec.fieldContext_User_displayName(ctx, field)
 			case "emailAddress":
 				return ec.fieldContext_User_emailAddress(ctx, field)
+			case "hasTokenExchangePending":
+				return ec.fieldContext_User_hasTokenExchangePending(ctx, field)
 			case "parsleyFilters":
 				return ec.fieldContext_User_parsleyFilters(ctx, field)
 			case "parsleySettings":
@@ -73498,6 +73618,8 @@ func (ec *executionContext) fieldContext_Version_user(_ context.Context, field g
 				return ec.fieldContext_User_permissions(ctx, field)
 			case "settings":
 				return ec.fieldContext_User_settings(ctx, field)
+			case "tokenAccessTokenExpiresAt":
+				return ec.fieldContext_User_tokenAccessTokenExpiresAt(ctx, field)
 			case "subscriptions":
 				return ec.fieldContext_User_subscriptions(ctx, field)
 			case "userId":
@@ -106052,6 +106174,11 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			out.Values[i] = ec._User_displayName(ctx, field, obj)
 		case "emailAddress":
 			out.Values[i] = ec._User_emailAddress(ctx, field, obj)
+		case "hasTokenExchangePending":
+			out.Values[i] = ec._User_hasTokenExchangePending(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "parsleyFilters":
 			out.Values[i] = ec._User_parsleyFilters(ctx, field, obj)
 		case "parsleySettings":
@@ -106124,6 +106251,8 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "settings":
 			out.Values[i] = ec._User_settings(ctx, field, obj)
+		case "tokenAccessTokenExpiresAt":
+			out.Values[i] = ec._User_tokenAccessTokenExpiresAt(ctx, field, obj)
 		case "subscriptions":
 			field := field
 
@@ -106269,6 +106398,8 @@ func (ec *executionContext) _UserServiceFlags(ctx context.Context, sel ast.Selec
 			out.Values[i] = ec._UserServiceFlags_debugSpawnHostDisabled(ctx, field, obj)
 		case "jwtTokenForCLIDisabled":
 			out.Values[i] = ec._UserServiceFlags_jwtTokenForCLIDisabled(ctx, field, obj)
+		case "staticAPIKeysDisabled":
+			out.Values[i] = ec._UserServiceFlags_staticAPIKeysDisabled(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
