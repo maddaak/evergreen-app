@@ -79,7 +79,7 @@ func CopyProject(ctx context.Context, env evergreen.Environment, opts restModel.
 		catcher.Wrapf(err, "copying aliases from project '%s'", oldIdentifier)
 	}
 	if err := event.CopyProjectSubscriptions(ctx, oldId, projectToCopy.Id); err != nil {
-		catcher.Add(errors.Errorf("copying subscriptions from project '%s': failed", oldIdentifier))
+		catcher.Errorf("copying subscriptions from project '%s': failed", oldIdentifier)
 	}
 	// Set the same admin roles from the old project on the newly copied project.
 	if err := model.UpdateAdminRoles(ctx, projectToCopy, projectToCopy.Admins, nil); err != nil {
