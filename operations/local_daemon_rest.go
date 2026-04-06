@@ -83,6 +83,24 @@ func (d *localDaemonREST) handleLoadConfig(w http.ResponseWriter, r *http.Reques
 
 	d.conf.OAuth.AccessToken = req.OAuthToken
 
+	// If an executor already exists with a selected task, hot reload the
+	// project so the debug session state is preserved.
+	if d.executor != nil {
+		project, err := d.executor.ReloadProject(r.Context(), req.ConfigPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		d.configPath = req.ConfigPath
+
+		grip.Error(r.Context(), json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":       true,
+			"task_count":    len(project.Tasks),
+			"variant_count": len(project.BuildVariants),
+		}))
+		return
+	}
+
 	workDir := filepath.Dir(req.ConfigPath)
 
 	opts := taskexec.LocalExecutorOptions{
@@ -123,7 +141,8 @@ func (d *localDaemonREST) handleLoadConfig(w http.ResponseWriter, r *http.Reques
 // handleSelectTask selects a task for debugging
 func (d *localDaemonREST) handleSelectTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TaskName string `json:"task_name"`
+		TaskName    string `json:"task_name"`
+		VariantName string `json:"variant_name"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -139,7 +158,7 @@ func (d *localDaemonREST) handleSelectTask(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := d.executor.PrepareTask(r.Context(), req.TaskName); err != nil {
+	if err := d.executor.PrepareTask(r.Context(), req.TaskName, req.VariantName); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
