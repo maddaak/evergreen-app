@@ -455,7 +455,7 @@ func CopyProjectSubscriptions(ctx context.Context, oldProject, newProject string
 	}
 
 	if len(subs) == 0 {
-		grip.Info(ctx, message.Fields{
+		grip.Debug(ctx, message.Fields{
 			"message":     "no subscriptions found to copy for project",
 			"old_project": oldProject,
 			"new_project": newProject,
@@ -474,14 +474,6 @@ func CopyProjectSubscriptions(ctx context.Context, oldProject, newProject string
 			}
 		}
 		if err := sub.Upsert(ctx); err != nil {
-			grip.Error(ctx, message.Fields{
-				"message":         "failed to copy subscription for project",
-				"old_project":     oldProject,
-				"new_project":     newProject,
-				"trigger":         sub.Trigger,
-				"resource_type":   sub.ResourceType,
-				"subscriber_type": sub.Subscriber.Type,
-			})
 			catcher.Add(err)
 		}
 	}
