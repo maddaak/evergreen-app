@@ -275,7 +275,6 @@ func logRemovalFailureDiagnostics(ctx context.Context, dir string, mounts []stri
 	})
 }
 
-
 // tryCleanupDirectory is a very conservative function that attempts
 // to cleanup the working directory when the agent starts. Without
 // this function, if an agent attempts to start on a system where a
