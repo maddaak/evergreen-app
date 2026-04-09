@@ -5,12 +5,12 @@
 Each task tracks the following cost components:
 
 - **EC2 on-demand cost**: The runtime cost of the instance at AWS list price.
-- **EC2 adjusted cost**: The runtime cost using the finance formula, which blends the savings plan rate and on-demand rate. This is the figure used for internal cost attribution.
+- **EC2 adjusted cost**: The runtime cost using the finance formula, which accounts for internal savings plans and discounts.
 - **EBS GP3 throughput cost — on-demand**: The cost of EBS GP3 throughput above the 125 MB/s free tier at AWS list price.
 - **EBS GP3 throughput cost — adjusted**: The same EBS throughput cost with an internal discount applied.
-- **S3 Artifact PUT Cost**: The cost of S3 PUT API requests made when uploading user artifacts via `s3.put` commands.
+- **S3 Artifact PUT Cost**: The cost of S3 PUT API requests made when uploading user artifacts via the `s3.put` command.
 - **S3 Log PUT Cost**: The cost of S3 PUT API requests made when uploading task log chunks.
-- **S3 Artifact Storage Cost**: The cost of storing uploaded artifact bytes over their retention period, calculated using S3 Intelligent Tiering pricing.
+- **S3 Artifact Storage Cost**: The cost of storing the uploaded artifacts, taking into consideration how long they will be stored (whenever possible) as well as S3 Intelligent Tiering pricing.
 - **S3 Log Storage Cost**: The cost of storing uploaded log bytes over their retention period, calculated using S3 Intelligent Tiering pricing.
 
 These costs roll up to the version level when the version finishes.
@@ -31,7 +31,7 @@ The **adjusted cost** blends the savings plan rate and on-demand rate using the 
 adjusted_cost = runtime_seconds * (finance_formula * savings_plan_rate + (1 - finance_formula) * on_demand_rate) / 3600
 ```
 
-Both discount values and the finance formula are configured in the `cost` section of the Evergreen admin settings.
+Both discount values and the finance formula are owned by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps).
 
 ## How is the EBS throughput cost calculated?
 
@@ -77,7 +77,7 @@ Storage cost is calculated using S3 Intelligent Tiering pricing, which transitio
 | Infrequent Access | 30–90 | $0.0125            |
 | Archive           | 90+   | $0.004             |
 
-The retention period is read from the bucket's S3 lifecycle rule. If no lifecycle rule is found for the bucket, the `default_max_artifact_expiration_days` value from the admin settings is used as a fallback. Separate discounts can be configured for each tier.
+The retention period is read from the bucket's S3 lifecycle rule (when possible). If no lifecycle rule is found for the bucket, the `default_max_artifact_expiration_days` value from the admin settings is used as a fallback. Separate discounts can be configured for each tier.
 
 ```text
 days_in_standard = min(expiration_days, 30)
@@ -105,13 +105,13 @@ s3_log_storage_cost = log_upload_bytes
 
 Cost fields are returned on the task and version endpoints.
 
-**Task** — returns `task_cost`, `predicted_task_cost`, and `s3_usage`:
+**Task** — returns `task_cost`, `predicted_task_cost`. We also return `s3_usage` which includes the S3 usage information that informs the cost calculation.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/tasks/{task_id}
 ```
 
-**Version** — returns `cost` (aggregated actuals) and `predicted_cost` across all tasks in the version:
+**Version** — returns `cost` and `predicted_cost` across all tasks in the version. `cost` is only available once all tasks have finished running.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/versions/{version_id}
@@ -119,11 +119,9 @@ GET https://evergreen.mongodb.com/rest/v2/versions/{version_id}
 
 Both endpoints require authentication via `Api-User` and `Api-Key` headers.
 
-## Why is a task's cost zero even though it ran?
+## When are S3 PUT costs calculated?
 
-A task's cost fields are only populated if the relevant admin configuration is present. If the `cost` admin settings have not been configured (discounts, formula, etc.), cost calculations return zero. EC2 and EBS costs also require the distro to have pricing data set.
-
-Additionally, S3 PUT costs are only calculated if the task uploaded files. S3 artifact storage cost requires that the task's artifacts have a resolvable lifecycle rule or a configured `default_max_artifact_expiration_days` fallback.
+S3 PUT costs are only calculated if the task uploaded files.
 
 ## How are cost discounts configured?
 
