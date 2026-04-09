@@ -170,6 +170,7 @@ type ComplexityRoot struct {
 		ContainerPools          func(childComplexity int) int
 		Cost                    func(childComplexity int) int
 		DebugSpawnHosts         func(childComplexity int) int
+		Diagnostics             func(childComplexity int) int
 		DisabledGQLQueries      func(childComplexity int) int
 		DomainName              func(childComplexity int) int
 		Expansions              func(childComplexity int) int
@@ -405,10 +406,13 @@ type ComplexityRoot struct {
 	}
 
 	Cost struct {
-		AdjustedEC2Cost   func(childComplexity int) int
-		OnDemandEC2Cost   func(childComplexity int) int
-		S3ArtifactPutCost func(childComplexity int) int
-		S3LogPutCost      func(childComplexity int) int
+		AdjustedEBSStorageCost    func(childComplexity int) int
+		AdjustedEBSThroughputCost func(childComplexity int) int
+		AdjustedEC2Cost           func(childComplexity int) int
+		OnDemandEC2Cost           func(childComplexity int) int
+		S3ArtifactPutCost         func(childComplexity int) int
+		S3ArtifactStorageCost     func(childComplexity int) int
+		S3LogPutCost              func(childComplexity int) int
 	}
 
 	CostConfig struct {
@@ -451,6 +455,11 @@ type ComplexityRoot struct {
 		Name           func(childComplexity int) int
 		RequiredStatus func(childComplexity int) int
 		TaskID         func(childComplexity int) int
+	}
+
+	DiagnosticsConfig struct {
+		S3BucketName func(childComplexity int) int
+		S3Prefix     func(childComplexity int) int
 	}
 
 	DispatcherSettings struct {
@@ -1198,7 +1207,6 @@ type ComplexityRoot struct {
 		Alias                func(childComplexity int) int
 		Author               func(childComplexity int) int
 		AuthorDisplayName    func(childComplexity int) int
-		BaseTaskStatuses     func(childComplexity int) int
 		Builds               func(childComplexity int) int
 		ChildPatchAliases    func(childComplexity int) int
 		ChildPatches         func(childComplexity int) int
@@ -1475,9 +1483,10 @@ type ComplexityRoot struct {
 	}
 
 	ProjectVars struct {
-		AdminOnlyVars func(childComplexity int) int
-		PrivateVars   func(childComplexity int) int
-		Vars          func(childComplexity int) int
+		AdminOnlyVars    func(childComplexity int) int
+		PrivateVars      func(childComplexity int) int
+		Vars             func(childComplexity int) int
+		VarsDescriptions func(childComplexity int) int
 	}
 
 	PublicKey struct {
@@ -1763,6 +1772,7 @@ type ComplexityRoot struct {
 		LargeParserProjectsDisabled        func(childComplexity int) int
 		MonitorDisabled                    func(childComplexity int) int
 		PSLoggingDisabled                  func(childComplexity int) int
+		PodDiagnosticsDisabled             func(childComplexity int) int
 		ReleaseModeDisabled                func(childComplexity int) int
 		RepotrackerDisabled                func(childComplexity int) int
 		S3LifecycleSyncDisabled            func(childComplexity int) int
@@ -2318,7 +2328,6 @@ type ComplexityRoot struct {
 		Activated                func(childComplexity int) int
 		Author                   func(childComplexity int) int
 		AuthorEmail              func(childComplexity int) int
-		BaseTaskStatuses         func(childComplexity int) int
 		BaseVersion              func(childComplexity int) int
 		Branch                   func(childComplexity int) int
 		BuildVariantStats        func(childComplexity int, options BuildVariantOptions) int
@@ -2590,7 +2599,6 @@ type MutationResolver interface {
 }
 type PatchResolver interface {
 	AuthorDisplayName(ctx context.Context, obj *model.APIPatch) (string, error)
-	BaseTaskStatuses(ctx context.Context, obj *model.APIPatch) ([]string, error)
 	Builds(ctx context.Context, obj *model.APIPatch) ([]*model.APIBuild, error)
 
 	Duration(ctx context.Context, obj *model.APIPatch) (*PatchDuration, error)
@@ -2804,7 +2812,6 @@ type UserResolver interface {
 	Subscriptions(ctx context.Context, obj *model.APIDBUser) ([]*model.APISubscription, error)
 }
 type VersionResolver interface {
-	BaseTaskStatuses(ctx context.Context, obj *model.APIVersion) ([]string, error)
 	BaseVersion(ctx context.Context, obj *model.APIVersion) (*model.APIVersion, error)
 
 	BuildVariants(ctx context.Context, obj *model.APIVersion, options BuildVariantOptions) ([]*GroupedBuildVariant, error)
@@ -3165,6 +3172,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.AdminSettings.DebugSpawnHosts(childComplexity), true
+	case "AdminSettings.diagnostics":
+		if e.complexity.AdminSettings.Diagnostics == nil {
+			break
+		}
+
+		return e.complexity.AdminSettings.Diagnostics(childComplexity), true
 	case "AdminSettings.disabledGQLQueries":
 		if e.complexity.AdminSettings.DisabledGQLQueries == nil {
 			break
@@ -4133,6 +4146,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ContainerPoolsConfig.Pools(childComplexity), true
 
+	case "Cost.adjustedEBSStorageCost":
+		if e.complexity.Cost.AdjustedEBSStorageCost == nil {
+			break
+		}
+
+		return e.complexity.Cost.AdjustedEBSStorageCost(childComplexity), true
+	case "Cost.adjustedEBSThroughputCost":
+		if e.complexity.Cost.AdjustedEBSThroughputCost == nil {
+			break
+		}
+
+		return e.complexity.Cost.AdjustedEBSThroughputCost(childComplexity), true
 	case "Cost.adjustedEC2Cost":
 		if e.complexity.Cost.AdjustedEC2Cost == nil {
 			break
@@ -4151,6 +4176,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Cost.S3ArtifactPutCost(childComplexity), true
+	case "Cost.s3ArtifactStorageCost":
+		if e.complexity.Cost.S3ArtifactStorageCost == nil {
+			break
+		}
+
+		return e.complexity.Cost.S3ArtifactStorageCost(childComplexity), true
 	case "Cost.s3LogPutCost":
 		if e.complexity.Cost.S3LogPutCost == nil {
 			break
@@ -4273,6 +4304,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Dependency.TaskID(childComplexity), true
+
+	case "DiagnosticsConfig.s3BucketName":
+		if e.complexity.DiagnosticsConfig.S3BucketName == nil {
+			break
+		}
+
+		return e.complexity.DiagnosticsConfig.S3BucketName(childComplexity), true
+	case "DiagnosticsConfig.s3Prefix":
+		if e.complexity.DiagnosticsConfig.S3Prefix == nil {
+			break
+		}
+
+		return e.complexity.DiagnosticsConfig.S3Prefix(childComplexity), true
 
 	case "DispatcherSettings.version":
 		if e.complexity.DispatcherSettings.Version == nil {
@@ -7495,12 +7539,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Patch.AuthorDisplayName(childComplexity), true
-	case "Patch.baseTaskStatuses":
-		if e.complexity.Patch.BaseTaskStatuses == nil {
-			break
-		}
-
-		return e.complexity.Patch.BaseTaskStatuses(childComplexity), true
 	case "Patch.builds":
 		if e.complexity.Patch.Builds == nil {
 			break
@@ -8804,6 +8842,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ProjectVars.Vars(childComplexity), true
+	case "ProjectVars.varsDescriptions":
+		if e.complexity.ProjectVars.VarsDescriptions == nil {
+			break
+		}
+
+		return e.complexity.ProjectVars.VarsDescriptions(childComplexity), true
 
 	case "PublicKey.key":
 		if e.complexity.PublicKey.Key == nil {
@@ -10164,6 +10208,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ServiceFlags.PSLoggingDisabled(childComplexity), true
+	case "ServiceFlags.podDiagnosticsDisabled":
+		if e.complexity.ServiceFlags.PodDiagnosticsDisabled == nil {
+			break
+		}
+
+		return e.complexity.ServiceFlags.PodDiagnosticsDisabled(childComplexity), true
 	case "ServiceFlags.releaseModeDisabled":
 		if e.complexity.ServiceFlags.ReleaseModeDisabled == nil {
 			break
@@ -12501,12 +12551,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Version.AuthorEmail(childComplexity), true
-	case "Version.baseTaskStatuses":
-		if e.complexity.Version.BaseTaskStatuses == nil {
-			break
-		}
-
-		return e.complexity.Version.BaseTaskStatuses(childComplexity), true
 	case "Version.baseVersion":
 		if e.complexity.Version.BaseVersion == nil {
 			break
@@ -13226,6 +13270,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDefaultSectionToRepoInput,
 		ec.unmarshalInputDeleteDistroInput,
 		ec.unmarshalInputDeleteGithubAppCredentialsInput,
+		ec.unmarshalInputDiagnosticsConfigInput,
 		ec.unmarshalInputDispatcherSettingsInput,
 		ec.unmarshalInputDisplayTask,
 		ec.unmarshalInputDistroEventsInput,
@@ -18775,6 +18820,41 @@ func (ec *executionContext) fieldContext_AdminSettings_debugSpawnHosts(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _AdminSettings_diagnostics(ctx context.Context, field graphql.CollectedField, obj *model.APIAdminSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AdminSettings_diagnostics,
+		func(ctx context.Context) (any, error) {
+			return obj.Diagnostics, nil
+		},
+		nil,
+		ec.marshalODiagnosticsConfig2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPIDiagnosticsConfig,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_AdminSettings_diagnostics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AdminSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "s3BucketName":
+				return ec.fieldContext_DiagnosticsConfig_s3BucketName(ctx, field)
+			case "s3Prefix":
+				return ec.fieldContext_DiagnosticsConfig_s3Prefix(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DiagnosticsConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AdminSettings_disabledGQLQueries(ctx context.Context, field graphql.CollectedField, obj *model.APIAdminSettings) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19813,6 +19893,8 @@ func (ec *executionContext) fieldContext_AdminSettings_serviceFlags(_ context.Co
 				return ec.fieldContext_ServiceFlags_psLoggingDisabled(ctx, field)
 			case "useMergeQueuePathFilteringDisabled":
 				return ec.fieldContext_ServiceFlags_useMergeQueuePathFilteringDisabled(ctx, field)
+			case "podDiagnosticsDisabled":
+				return ec.fieldContext_ServiceFlags_podDiagnosticsDisabled(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ServiceFlags", field.Name)
 		},
@@ -24310,6 +24392,64 @@ func (ec *executionContext) fieldContext_Cost_adjustedEC2Cost(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Cost_adjustedEBSThroughputCost(ctx context.Context, field graphql.CollectedField, obj *cost.Cost) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Cost_adjustedEBSThroughputCost,
+		func(ctx context.Context) (any, error) {
+			return obj.AdjustedEBSThroughputCost, nil
+		},
+		nil,
+		ec.marshalOFloat2float64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Cost_adjustedEBSThroughputCost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Cost",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Cost_adjustedEBSStorageCost(ctx context.Context, field graphql.CollectedField, obj *cost.Cost) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Cost_adjustedEBSStorageCost,
+		func(ctx context.Context) (any, error) {
+			return obj.AdjustedEBSStorageCost, nil
+		},
+		nil,
+		ec.marshalOFloat2float64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Cost_adjustedEBSStorageCost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Cost",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Cost_s3ArtifactPutCost(ctx context.Context, field graphql.CollectedField, obj *cost.Cost) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24356,6 +24496,35 @@ func (ec *executionContext) _Cost_s3LogPutCost(ctx context.Context, field graphq
 }
 
 func (ec *executionContext) fieldContext_Cost_s3LogPutCost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Cost",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Cost_s3ArtifactStorageCost(ctx context.Context, field graphql.CollectedField, obj *cost.Cost) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Cost_s3ArtifactStorageCost,
+		func(ctx context.Context) (any, error) {
+			return obj.S3ArtifactStorageCost, nil
+		},
+		nil,
+		ec.marshalOFloat2float64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Cost_s3ArtifactStorageCost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Cost",
 		Field:      field,
@@ -24890,6 +25059,64 @@ func (ec *executionContext) _Dependency_taskId(ctx context.Context, field graphq
 func (ec *executionContext) fieldContext_Dependency_taskId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Dependency",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiagnosticsConfig_s3BucketName(ctx context.Context, field graphql.CollectedField, obj *model.APIDiagnosticsConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiagnosticsConfig_s3BucketName,
+		func(ctx context.Context) (any, error) {
+			return obj.S3BucketName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiagnosticsConfig_s3BucketName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiagnosticsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiagnosticsConfig_s3Prefix(ctx context.Context, field graphql.CollectedField, obj *model.APIDiagnosticsConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiagnosticsConfig_s3Prefix,
+		func(ctx context.Context) (any, error) {
+			return obj.S3Prefix, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiagnosticsConfig_s3Prefix(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiagnosticsConfig",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -35651,8 +35878,6 @@ func (ec *executionContext) fieldContext_MainlineCommitVersion_rolledUpVersions(
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -35768,8 +35993,6 @@ func (ec *executionContext) fieldContext_MainlineCommitVersion_version(_ context
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -36740,6 +36963,8 @@ func (ec *executionContext) fieldContext_Mutation_saveAdminSettings(ctx context.
 				return ec.fieldContext_AdminSettings_cost(ctx, field)
 			case "debugSpawnHosts":
 				return ec.fieldContext_AdminSettings_debugSpawnHosts(ctx, field)
+			case "diagnostics":
+				return ec.fieldContext_AdminSettings_diagnostics(ctx, field)
 			case "disabledGQLQueries":
 				return ec.fieldContext_AdminSettings_disabledGQLQueries(ctx, field)
 			case "domainName":
@@ -37300,8 +37525,6 @@ func (ec *executionContext) fieldContext_Mutation_setPatchVisibility(ctx context
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -37411,8 +37634,6 @@ func (ec *executionContext) fieldContext_Mutation_schedulePatch(ctx context.Cont
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -41656,8 +41877,6 @@ func (ec *executionContext) fieldContext_Mutation_restartVersions(ctx context.Co
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -43918,35 +44137,6 @@ func (ec *executionContext) fieldContext_Patch_authorDisplayName(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _Patch_baseTaskStatuses(ctx context.Context, field graphql.CollectedField, obj *model.APIPatch) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_Patch_baseTaskStatuses,
-		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Patch().BaseTaskStatuses(ctx, obj)
-		},
-		nil,
-		ec.marshalNString2ᚕstringᚄ,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_Patch_baseTaskStatuses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Patch",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Patch_builds(ctx context.Context, field graphql.CollectedField, obj *model.APIPatch) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -44057,8 +44247,6 @@ func (ec *executionContext) fieldContext_Patch_childPatches(_ context.Context, f
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -45078,8 +45266,6 @@ func (ec *executionContext) fieldContext_Patch_versionFull(_ context.Context, fi
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -45691,8 +45877,6 @@ func (ec *executionContext) fieldContext_Patches_patches(_ context.Context, fiel
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -49326,6 +49510,8 @@ func (ec *executionContext) fieldContext_ProjectEventSettings_vars(_ context.Con
 				return ec.fieldContext_ProjectVars_privateVars(ctx, field)
 			case "vars":
 				return ec.fieldContext_ProjectVars_vars(ctx, field)
+			case "varsDescriptions":
+				return ec.fieldContext_ProjectVars_varsDescriptions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProjectVars", field.Name)
 		},
@@ -50932,6 +51118,8 @@ func (ec *executionContext) fieldContext_ProjectSettings_vars(_ context.Context,
 				return ec.fieldContext_ProjectVars_privateVars(ctx, field)
 			case "vars":
 				return ec.fieldContext_ProjectVars_vars(ctx, field)
+			case "varsDescriptions":
+				return ec.fieldContext_ProjectVars_varsDescriptions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProjectVars", field.Name)
 		},
@@ -51101,6 +51289,35 @@ func (ec *executionContext) _ProjectVars_vars(ctx context.Context, field graphql
 }
 
 func (ec *executionContext) fieldContext_ProjectVars_vars(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProjectVars",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StringMap does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ProjectVars_varsDescriptions(ctx context.Context, field graphql.CollectedField, obj *model.APIProjectVars) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProjectVars_varsDescriptions,
+		func(ctx context.Context) (any, error) {
+			return obj.VarsDescriptions, nil
+		},
+		nil,
+		ec.marshalOStringMap2map,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProjectVars_varsDescriptions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ProjectVars",
 		Field:      field,
@@ -51419,6 +51636,8 @@ func (ec *executionContext) fieldContext_Query_adminSettings(_ context.Context, 
 				return ec.fieldContext_AdminSettings_cost(ctx, field)
 			case "debugSpawnHosts":
 				return ec.fieldContext_AdminSettings_debugSpawnHosts(ctx, field)
+			case "diagnostics":
+				return ec.fieldContext_AdminSettings_diagnostics(ctx, field)
 			case "disabledGQLQueries":
 				return ec.fieldContext_AdminSettings_disabledGQLQueries(ctx, field)
 			case "domainName":
@@ -52358,8 +52577,6 @@ func (ec *executionContext) fieldContext_Query_patch(ctx context.Context, field 
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -54134,8 +54351,6 @@ func (ec *executionContext) fieldContext_Query_version(ctx context.Context, fiel
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -56440,6 +56655,8 @@ func (ec *executionContext) fieldContext_RepoSettings_vars(_ context.Context, fi
 				return ec.fieldContext_ProjectVars_privateVars(ctx, field)
 			case "vars":
 				return ec.fieldContext_ProjectVars_vars(ctx, field)
+			case "varsDescriptions":
+				return ec.fieldContext_ProjectVars_varsDescriptions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProjectVars", field.Name)
 		},
@@ -59443,6 +59660,35 @@ func (ec *executionContext) _ServiceFlags_useMergeQueuePathFilteringDisabled(ctx
 }
 
 func (ec *executionContext) fieldContext_ServiceFlags_useMergeQueuePathFilteringDisabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServiceFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServiceFlags_podDiagnosticsDisabled(ctx context.Context, field graphql.CollectedField, obj *model.APIServiceFlags) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServiceFlags_podDiagnosticsDisabled,
+		func(ctx context.Context) (any, error) {
+			return obj.PodDiagnosticsDisabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServiceFlags_podDiagnosticsDisabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ServiceFlags",
 		Field:      field,
@@ -64788,8 +65034,6 @@ func (ec *executionContext) fieldContext_Task_patch(_ context.Context, field gra
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -66344,10 +66588,16 @@ func (ec *executionContext) fieldContext_Task_taskCost(_ context.Context, field 
 				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
+			case "adjustedEBSThroughputCost":
+				return ec.fieldContext_Cost_adjustedEBSThroughputCost(ctx, field)
+			case "adjustedEBSStorageCost":
+				return ec.fieldContext_Cost_adjustedEBSStorageCost(ctx, field)
 			case "s3ArtifactPutCost":
 				return ec.fieldContext_Cost_s3ArtifactPutCost(ctx, field)
 			case "s3LogPutCost":
 				return ec.fieldContext_Cost_s3LogPutCost(ctx, field)
+			case "s3ArtifactStorageCost":
+				return ec.fieldContext_Cost_s3ArtifactStorageCost(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Cost", field.Name)
 		},
@@ -66383,10 +66633,16 @@ func (ec *executionContext) fieldContext_Task_predictedTaskCost(_ context.Contex
 				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
+			case "adjustedEBSThroughputCost":
+				return ec.fieldContext_Cost_adjustedEBSThroughputCost(ctx, field)
+			case "adjustedEBSStorageCost":
+				return ec.fieldContext_Cost_adjustedEBSStorageCost(ctx, field)
 			case "s3ArtifactPutCost":
 				return ec.fieldContext_Cost_s3ArtifactPutCost(ctx, field)
 			case "s3LogPutCost":
 				return ec.fieldContext_Cost_s3LogPutCost(ctx, field)
+			case "s3ArtifactStorageCost":
+				return ec.fieldContext_Cost_s3ArtifactStorageCost(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Cost", field.Name)
 		},
@@ -66666,8 +66922,6 @@ func (ec *executionContext) fieldContext_Task_versionMetadata(_ context.Context,
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -72296,8 +72550,6 @@ func (ec *executionContext) fieldContext_UpstreamProject_version(_ context.Conte
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -73694,35 +73946,6 @@ func (ec *executionContext) fieldContext_Version_authorEmail(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _Version_baseTaskStatuses(ctx context.Context, field graphql.CollectedField, obj *model.APIVersion) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_Version_baseTaskStatuses,
-		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Version().BaseTaskStatuses(ctx, obj)
-		},
-		nil,
-		ec.marshalNString2ᚕstringᚄ,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_Version_baseTaskStatuses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Version",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Version_baseVersion(ctx context.Context, field graphql.CollectedField, obj *model.APIVersion) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -73755,8 +73978,6 @@ func (ec *executionContext) fieldContext_Version_baseVersion(_ context.Context, 
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -73999,8 +74220,6 @@ func (ec *executionContext) fieldContext_Version_childVersions(_ context.Context
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -74112,10 +74331,16 @@ func (ec *executionContext) fieldContext_Version_cost(_ context.Context, field g
 				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
+			case "adjustedEBSThroughputCost":
+				return ec.fieldContext_Cost_adjustedEBSThroughputCost(ctx, field)
+			case "adjustedEBSStorageCost":
+				return ec.fieldContext_Cost_adjustedEBSStorageCost(ctx, field)
 			case "s3ArtifactPutCost":
 				return ec.fieldContext_Cost_s3ArtifactPutCost(ctx, field)
 			case "s3LogPutCost":
 				return ec.fieldContext_Cost_s3LogPutCost(ctx, field)
+			case "s3ArtifactStorageCost":
+				return ec.fieldContext_Cost_s3ArtifactStorageCost(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Cost", field.Name)
 		},
@@ -74549,8 +74774,6 @@ func (ec *executionContext) fieldContext_Version_patch(_ context.Context, field 
 				return ec.fieldContext_Patch_author(ctx, field)
 			case "authorDisplayName":
 				return ec.fieldContext_Patch_authorDisplayName(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Patch_baseTaskStatuses(ctx, field)
 			case "builds":
 				return ec.fieldContext_Patch_builds(ctx, field)
 			case "childPatchAliases":
@@ -74642,10 +74865,16 @@ func (ec *executionContext) fieldContext_Version_predictedCost(_ context.Context
 				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
+			case "adjustedEBSThroughputCost":
+				return ec.fieldContext_Cost_adjustedEBSThroughputCost(ctx, field)
+			case "adjustedEBSStorageCost":
+				return ec.fieldContext_Cost_adjustedEBSStorageCost(ctx, field)
 			case "s3ArtifactPutCost":
 				return ec.fieldContext_Cost_s3ArtifactPutCost(ctx, field)
 			case "s3LogPutCost":
 				return ec.fieldContext_Cost_s3LogPutCost(ctx, field)
+			case "s3ArtifactStorageCost":
+				return ec.fieldContext_Cost_s3ArtifactStorageCost(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Cost", field.Name)
 		},
@@ -74685,8 +74914,6 @@ func (ec *executionContext) fieldContext_Version_previousVersion(_ context.Conte
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -75600,10 +75827,16 @@ func (ec *executionContext) fieldContext_VersionLite_cost(_ context.Context, fie
 				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
+			case "adjustedEBSThroughputCost":
+				return ec.fieldContext_Cost_adjustedEBSThroughputCost(ctx, field)
+			case "adjustedEBSStorageCost":
+				return ec.fieldContext_Cost_adjustedEBSStorageCost(ctx, field)
 			case "s3ArtifactPutCost":
 				return ec.fieldContext_Cost_s3ArtifactPutCost(ctx, field)
 			case "s3LogPutCost":
 				return ec.fieldContext_Cost_s3LogPutCost(ctx, field)
+			case "s3ArtifactStorageCost":
+				return ec.fieldContext_Cost_s3ArtifactStorageCost(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Cost", field.Name)
 		},
@@ -76866,8 +77099,6 @@ func (ec *executionContext) fieldContext_Waterfall_flattenedVersions(_ context.C
 				return ec.fieldContext_Version_author(ctx, field)
 			case "authorEmail":
 				return ec.fieldContext_Version_authorEmail(ctx, field)
-			case "baseTaskStatuses":
-				return ec.fieldContext_Version_baseTaskStatuses(ctx, field)
 			case "baseVersion":
 				return ec.fieldContext_Version_baseVersion(ctx, field)
 			case "branch":
@@ -79742,7 +79973,7 @@ func (ec *executionContext) unmarshalInputAdminSettingsInput(ctx context.Context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"amboy", "amboyDB", "api", "authConfig", "oktaServiceConfig", "banner", "bannerTheme", "buckets", "cedar", "configDir", "containerPools", "cost", "debugSpawnHosts", "disabledGQLQueries", "domainName", "expansions", "fws", "graphite", "githubCheckRun", "githubOrgs", "githubPRCreatorOrg", "githubWebhookSecret", "hostInit", "hostJasper", "jira", "jiraNotifications", "logPath", "loggerConfig", "notify", "oldestAllowedCLIVersion", "parameterStore", "perfMonitoringKanopyURL", "perfMonitoringURL", "pprofPort", "projectCreation", "providers", "releaseMode", "repotracker", "runtimeEnvironments", "scheduler", "serviceFlags", "shutdownWaitSeconds", "singleTaskDistro", "slack", "sleepSchedule", "spawnhost", "splunk", "ssh", "taskLimits", "testSelection", "tracer", "triggers", "ui", "sage"}
+	fieldsInOrder := [...]string{"amboy", "amboyDB", "api", "authConfig", "oktaServiceConfig", "banner", "bannerTheme", "buckets", "cedar", "configDir", "containerPools", "cost", "debugSpawnHosts", "diagnostics", "disabledGQLQueries", "domainName", "expansions", "fws", "graphite", "githubCheckRun", "githubOrgs", "githubPRCreatorOrg", "githubWebhookSecret", "hostInit", "hostJasper", "jira", "jiraNotifications", "logPath", "loggerConfig", "notify", "oldestAllowedCLIVersion", "parameterStore", "perfMonitoringKanopyURL", "perfMonitoringURL", "pprofPort", "projectCreation", "providers", "releaseMode", "repotracker", "runtimeEnvironments", "scheduler", "serviceFlags", "shutdownWaitSeconds", "singleTaskDistro", "slack", "sleepSchedule", "spawnhost", "splunk", "ssh", "taskLimits", "testSelection", "tracer", "triggers", "ui", "sage"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -79861,6 +80092,13 @@ func (ec *executionContext) unmarshalInputAdminSettingsInput(ctx context.Context
 				return it, err
 			}
 			it.DebugSpawnHosts = data
+		case "diagnostics":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("diagnostics"))
+			data, err := ec.unmarshalODiagnosticsConfigInput2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPIDiagnosticsConfig(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Diagnostics = data
 		case "disabledGQLQueries":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("disabledGQLQueries"))
 			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
@@ -81857,6 +82095,40 @@ func (ec *executionContext) unmarshalInputDeleteGithubAppCredentialsInput(ctx co
 				err := fmt.Errorf(`unexpected type %T from directive, should be string`, tmp)
 				return it, graphql.ErrorOnPath(ctx, err)
 			}
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputDiagnosticsConfigInput(ctx context.Context, obj any) (model.APIDiagnosticsConfig, error) {
+	var it model.APIDiagnosticsConfig
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"s3BucketName", "s3Prefix"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "s3BucketName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("s3BucketName"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.S3BucketName = data
+		case "s3Prefix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("s3Prefix"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.S3Prefix = data
 		}
 	}
 
@@ -86056,7 +86328,7 @@ func (ec *executionContext) unmarshalInputProjectVarsInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"adminOnlyVarsList", "privateVarsList", "vars"}
+	fieldsInOrder := [...]string{"adminOnlyVarsList", "privateVarsList", "vars", "varsDescriptions"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -86084,6 +86356,13 @@ func (ec *executionContext) unmarshalInputProjectVarsInput(ctx context.Context, 
 				return it, err
 			}
 			it.Vars = data
+		case "varsDescriptions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("varsDescriptions"))
+			data, err := ec.unmarshalOStringMap2map(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.VarsDescriptions = data
 		}
 	}
 
@@ -87654,7 +87933,7 @@ func (ec *executionContext) unmarshalInputServiceFlagsInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"taskDispatchDisabled", "hostInitDisabled", "largeParserProjectsDisabled", "monitorDisabled", "alertsDisabled", "agentStartDisabled", "repotrackerDisabled", "schedulerDisabled", "checkBlockedTasksDisabled", "githubPRTestingDisabled", "cliUpdatesDisabled", "backgroundStatsDisabled", "taskLoggingDisabled", "cacheStatsJobDisabled", "cacheStatsEndpointDisabled", "taskReliabilityDisabled", "hostAllocatorDisabled", "backgroundReauthDisabled", "cloudCleanupDisabled", "debugSpawnHostDisabled", "sleepScheduleDisabled", "staticAPIKeysDisabled", "jwtTokenForCLIDisabled", "systemFailedTaskRestartDisabled", "degradedModeDisabled", "elasticIPsDisabled", "releaseModeDisabled", "eventProcessingDisabled", "jiraNotificationsDisabled", "slackNotificationsDisabled", "emailNotificationsDisabled", "webhookNotificationsDisabled", "githubStatusAPIDisabled", "s3LifecycleSyncDisabled", "psLoggingDisabled", "useMergeQueuePathFilteringDisabled"}
+	fieldsInOrder := [...]string{"taskDispatchDisabled", "hostInitDisabled", "largeParserProjectsDisabled", "monitorDisabled", "alertsDisabled", "agentStartDisabled", "repotrackerDisabled", "schedulerDisabled", "checkBlockedTasksDisabled", "githubPRTestingDisabled", "cliUpdatesDisabled", "backgroundStatsDisabled", "taskLoggingDisabled", "cacheStatsJobDisabled", "cacheStatsEndpointDisabled", "taskReliabilityDisabled", "hostAllocatorDisabled", "backgroundReauthDisabled", "cloudCleanupDisabled", "debugSpawnHostDisabled", "sleepScheduleDisabled", "staticAPIKeysDisabled", "jwtTokenForCLIDisabled", "systemFailedTaskRestartDisabled", "degradedModeDisabled", "elasticIPsDisabled", "releaseModeDisabled", "eventProcessingDisabled", "jiraNotificationsDisabled", "slackNotificationsDisabled", "emailNotificationsDisabled", "webhookNotificationsDisabled", "githubStatusAPIDisabled", "s3LifecycleSyncDisabled", "psLoggingDisabled", "useMergeQueuePathFilteringDisabled", "podDiagnosticsDisabled"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -87913,6 +88192,13 @@ func (ec *executionContext) unmarshalInputServiceFlagsInput(ctx context.Context,
 				return it, err
 			}
 			it.UseMergeQueuePathFilteringDisabled = data
+		case "podDiagnosticsDisabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("podDiagnosticsDisabled"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PodDiagnosticsDisabled = data
 		}
 	}
 
@@ -91032,6 +91318,8 @@ func (ec *executionContext) _AdminSettings(ctx context.Context, sel ast.Selectio
 			out.Values[i] = ec._AdminSettings_cost(ctx, field, obj)
 		case "debugSpawnHosts":
 			out.Values[i] = ec._AdminSettings_debugSpawnHosts(ctx, field, obj)
+		case "diagnostics":
+			out.Values[i] = ec._AdminSettings_diagnostics(ctx, field, obj)
 		case "disabledGQLQueries":
 			out.Values[i] = ec._AdminSettings_disabledGQLQueries(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -92451,10 +92739,16 @@ func (ec *executionContext) _Cost(ctx context.Context, sel ast.SelectionSet, obj
 			out.Values[i] = ec._Cost_onDemandEC2Cost(ctx, field, obj)
 		case "adjustedEC2Cost":
 			out.Values[i] = ec._Cost_adjustedEC2Cost(ctx, field, obj)
+		case "adjustedEBSThroughputCost":
+			out.Values[i] = ec._Cost_adjustedEBSThroughputCost(ctx, field, obj)
+		case "adjustedEBSStorageCost":
+			out.Values[i] = ec._Cost_adjustedEBSStorageCost(ctx, field, obj)
 		case "s3ArtifactPutCost":
 			out.Values[i] = ec._Cost_s3ArtifactPutCost(ctx, field, obj)
 		case "s3LogPutCost":
 			out.Values[i] = ec._Cost_s3LogPutCost(ctx, field, obj)
+		case "s3ArtifactStorageCost":
+			out.Values[i] = ec._Cost_s3ArtifactStorageCost(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -92790,6 +93084,44 @@ func (ec *executionContext) _Dependency(ctx context.Context, sel ast.SelectionSe
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var diagnosticsConfigImplementors = []string{"DiagnosticsConfig"}
+
+func (ec *executionContext) _DiagnosticsConfig(ctx context.Context, sel ast.SelectionSet, obj *model.APIDiagnosticsConfig) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, diagnosticsConfigImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DiagnosticsConfig")
+		case "s3BucketName":
+			out.Values[i] = ec._DiagnosticsConfig_s3BucketName(ctx, field, obj)
+		case "s3Prefix":
+			out.Values[i] = ec._DiagnosticsConfig_s3Prefix(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -98717,42 +99049,6 @@ func (ec *executionContext) _Patch(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "baseTaskStatuses":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Patch_baseTaskStatuses(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "builds":
 			field := field
 
@@ -101284,6 +101580,8 @@ func (ec *executionContext) _ProjectVars(ctx context.Context, sel ast.SelectionS
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "vars":
 			out.Values[i] = ec._ProjectVars_vars(ctx, field, obj)
+		case "varsDescriptions":
+			out.Values[i] = ec._ProjectVars_varsDescriptions(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -103993,6 +104291,8 @@ func (ec *executionContext) _ServiceFlags(ctx context.Context, sel ast.Selection
 			out.Values[i] = ec._ServiceFlags_psLoggingDisabled(ctx, field, obj)
 		case "useMergeQueuePathFilteringDisabled":
 			out.Values[i] = ec._ServiceFlags_useMergeQueuePathFilteringDisabled(ctx, field, obj)
+		case "podDiagnosticsDisabled":
+			out.Values[i] = ec._ServiceFlags_podDiagnosticsDisabled(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -109144,42 +109444,6 @@ func (ec *executionContext) _Version(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "baseTaskStatuses":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Version_baseTaskStatuses(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "baseVersion":
 			field := field
 
@@ -118044,6 +118308,21 @@ func (ec *executionContext) marshalODependency2ᚕᚖgithubᚗcomᚋevergreenᚑ
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalODiagnosticsConfig2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPIDiagnosticsConfig(ctx context.Context, sel ast.SelectionSet, v *model.APIDiagnosticsConfig) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DiagnosticsConfig(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalODiagnosticsConfigInput2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPIDiagnosticsConfig(ctx context.Context, v any) (*model.APIDiagnosticsConfig, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputDiagnosticsConfigInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalODistro2ᚖgithubᚗcomᚋevergreenᚑciᚋevergreenᚋrestᚋmodelᚐAPIDistro(ctx context.Context, sel ast.SelectionSet, v *model.APIDistro) graphql.Marshaler {

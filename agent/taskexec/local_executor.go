@@ -16,7 +16,6 @@ import (
 	"github.com/evergreen-ci/evergreen/agent/internal/redactor"
 	agentutil "github.com/evergreen-ci/evergreen/agent/util"
 	"github.com/evergreen-ci/evergreen/model"
-	"github.com/evergreen-ci/evergreen/model/task"
 	"github.com/evergreen-ci/evergreen/util"
 	"github.com/mongodb/grip"
 	"github.com/mongodb/grip/logging"
@@ -31,6 +30,7 @@ var noOpCommands = map[string]string{
 	"downstream_expansions.set":             "downstream expansions are not available in local execution",
 	evergreen.AttachXUnitResultsCommandName: "test result attachment is not supported in local execution",
 	evergreen.AttachResultsCommandName:      "result attachment is not supported in local execution",
+	"gotest.parse_files":                    "result attachment is not supported in local execution",
 	evergreen.AttachArtifactsCommandName:    "artifact attachment is not supported in local execution",
 	"papertrail.trace":                      "papertrail tracing is not available in local execution",
 	"keyval.inc":                            "key-value increment operations are not supported in local execution",
@@ -115,6 +115,7 @@ func NewLocalExecutor(ctx context.Context, opts LocalExecutorOptions) (*LocalExe
 
 	taskConfig := &internal.TaskConfig{
 		Expansions:            expansions,
+		NewExpansions:         agentutil.NewDynamicExpansions(expansions),
 		WorkDir:               opts.WorkingDir,
 		AssumeRoleInformation: map[string]internal.AssumeRoleInformation{},
 	}
@@ -137,8 +138,10 @@ func NewLocalExecutor(ctx context.Context, opts LocalExecutorOptions) (*LocalExe
 		opts:           opts,
 	}
 
-	if err := localExecutor.fetchTaskConfig(ctx, opts); err != nil {
-		return nil, errors.Wrap(err, "fetching task config")
+	if opts.TaskID != "" {
+		if err := localExecutor.fetchTaskConfig(ctx, opts); err != nil {
+			return nil, errors.Wrap(err, "fetching task config")
+		}
 	}
 
 	return localExecutor, nil
@@ -318,9 +321,9 @@ func (e *LocalExecutor) stepNext(ctx context.Context) error {
 
 	startTime := time.Now()
 
-	_, isNoOp := noOpCommands[targetCmd.Command.Command]
+	_, isNoOp := noOpCommands[targetCmd.CommandName]
 	if isNoOp {
-		noOpMsg := e.getNoOpMessage(targetCmd.Command.Command)
+		noOpMsg := e.getNoOpMessage(targetCmd.CommandName)
 		if e.streamWriter != nil {
 			e.streamWriter.WriteChannelMessage(ExecChannel, noOpMsg)
 		}
@@ -406,7 +409,13 @@ func (e *LocalExecutor) stepNext(ctx context.Context) error {
 			cmd := cmds[targetIndexWithinExpanded]
 			cmd.SetJasperManager(e.jasperManager)
 
-			err := cmd.Execute(ctx, e.communicator, e.loggerProducer, e.taskConfig)
+			cleanup, err := e.taskConfig.ApplyFunctionVarsToExpansions(commandInfo.Vars, cmd.Name())
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+
+			err = cmd.Execute(ctx, e.communicator, e.loggerProducer, e.taskConfig)
 			if err != nil {
 				e.logger.Errorf(ctx, "Step %s failed: %v", targetCmd.FullStepNumber(), err)
 				if canFailTask {
@@ -482,6 +491,23 @@ func (e *LocalExecutor) GetDebugState() *DebugState {
 	return e.debugState
 }
 
+// GetProject returns the loaded project.
+func (e *LocalExecutor) GetProject() *model.Project {
+	return e.project
+}
+
+// GetFetchedTaskName returns the display name of the task fetched from
+// the server during initialization.
+func (e *LocalExecutor) GetFetchedTaskName() string {
+	return e.taskConfig.Task.DisplayName
+}
+
+// GetFetchedBuildVariant returns the build variant of the task fetched
+// from the server during initialization.
+func (e *LocalExecutor) GetFetchedBuildVariant() string {
+	return e.taskConfig.Task.BuildVariant
+}
+
 // SetStreamWriter sets the stream writer for streaming output during execution.
 // When set, command output is sent as NDJSON to the stream writer.
 func (e *LocalExecutor) SetStreamWriter(sw *streamWriter) {
@@ -550,12 +576,14 @@ func newStreamingLoggerProducerAdapter(producer *streamingLoggerProducer) *strea
 	}
 }
 
-func (a *streamingLoggerProducerAdapter) Execution() grip.Journaler       { return a.logger }
-func (a *streamingLoggerProducerAdapter) Task() grip.Journaler            { return a.logger }
-func (a *streamingLoggerProducerAdapter) System() grip.Journaler          { return a.logger }
-func (a *streamingLoggerProducerAdapter) Flush(ctx context.Context) error { return nil }
-func (a *streamingLoggerProducerAdapter) Close() error                    { return a.producer.Close() }
-func (a *streamingLoggerProducerAdapter) Closed() bool                    { return a.producer.Closed() }
+func (a *streamingLoggerProducerAdapter) Execution() grip.Journaler { return a.logger }
+func (a *streamingLoggerProducerAdapter) Task() grip.Journaler      { return a.logger }
+func (a *streamingLoggerProducerAdapter) System() grip.Journaler    { return a.logger }
+func (a *streamingLoggerProducerAdapter) Flush(ctx context.Context) error {
+	return a.producer.Flush(ctx)
+}
+func (a *streamingLoggerProducerAdapter) Close() error { return a.producer.Close() }
+func (a *streamingLoggerProducerAdapter) Closed() bool { return a.producer.Closed() }
 
 // createBlockDeps creates BlockExecutorDeps for use with RunCommandsInBlock
 func (e *LocalExecutor) createBlockDeps() executor.BlockExecutorDeps {
@@ -726,6 +754,7 @@ func (e *LocalExecutor) rebuildCommandList() error {
 				e.debugState.CommandList = append(e.debugState.CommandList, CommandInfo{
 					Index:          globalIndex,
 					Command:        cmd,
+					CommandName:    cmd.Command,
 					DisplayName:    cmd.GetDisplayName(),
 					IsFunction:     cmd.Function != "",
 					FunctionName:   cmd.Function,
@@ -747,6 +776,7 @@ func (e *LocalExecutor) rebuildCommandList() error {
 				info := CommandInfo{
 					Index:          globalIndex,
 					Command:        cmd,
+					CommandName:    rcmd.Name(),
 					DisplayName:    displayName,
 					IsFunction:     cmd.Function != "",
 					FunctionName:   cmd.Function,
@@ -775,10 +805,6 @@ func (e *LocalExecutor) fetchTaskConfig(ctx context.Context, opts LocalExecutorO
 	taskData := client.TaskData{
 		ID:                 opts.TaskID,
 		OverrideValidation: true,
-	}
-	if opts.TaskID == "" {
-		e.createSyntheticTask("local_task")
-		return nil
 	}
 
 	projectRef, err := e.communicator.GetProjectRef(ctx, taskData)
@@ -827,15 +853,6 @@ func (e *LocalExecutor) fetchTaskConfig(ctx context.Context, opts LocalExecutorO
 		e.taskConfig.Expansions.Put(k, v)
 	}
 
-	allExpansions := make(util.Expansions, len(expansionsAndVars.Expansions)+len(expansionsAndVars.Vars))
-	for k, v := range expansionsAndVars.Expansions {
-		allExpansions[k] = v
-	}
-	for k, v := range expansionsAndVars.Vars {
-		allExpansions[k] = v
-	}
-	e.taskConfig.NewExpansions = agentutil.NewDynamicExpansions(allExpansions)
-
 	if expansionsAndVars.PrivateVars == nil {
 		expansionsAndVars.PrivateVars = map[string]bool{}
 	}
@@ -864,15 +881,6 @@ func (e *LocalExecutor) fetchTaskConfig(ctx context.Context, opts LocalExecutorO
 	e.taskConfig.InternalRedactions = agentutil.NewDynamicExpansions(internalRedactions)
 
 	return nil
-}
-
-func (e *LocalExecutor) createSyntheticTask(taskName string) {
-	taskID := fmt.Sprintf("local_%s_%d", taskName, time.Now().Unix())
-	e.taskConfig.Task = task.Task{
-		Id:          taskID,
-		Project:     e.taskConfig.ProjectRef.Identifier,
-		DisplayName: taskName,
-	}
 }
 
 func getDurationStr(startTime time.Time) string {
