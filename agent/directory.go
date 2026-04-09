@@ -275,35 +275,6 @@ func logRemovalFailureDiagnostics(ctx context.Context, dir string, mounts []stri
 	})
 }
 
-// activeMountsUnder returns bind mount points at or under dir. Linux-only;
-// returns nil on other platforms.
-func activeMountsUnder(ctx context.Context, dir string) []string {
-	if runtime.GOOS != "linux" {
-		return nil
-	}
-
-	data, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		grip.Warning(ctx, message.WrapError(err, message.Fields{
-			"message": "failed to read mountinfo to check for active mounts under task directory",
-		}))
-		return nil
-	}
-
-	var mounts []string
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		// The mount point is the fifth field.
-		if len(fields) < 5 {
-			continue
-		}
-		mountPoint := fields[4]
-		if mountPoint == dir || strings.HasPrefix(mountPoint, dir+"/") {
-			mounts = append(mounts, mountPoint)
-		}
-	}
-	return mounts
-}
 
 // tryCleanupDirectory is a very conservative function that attempts
 // to cleanup the working directory when the agent starts. Without
