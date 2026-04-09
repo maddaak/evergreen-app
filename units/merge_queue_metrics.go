@@ -45,7 +45,7 @@ func NewMergeQueueMetricsJob() amboy.Job {
 	return j
 }
 
-// Run collects and emits merge queue depth metrics for all projects with merge queue enabled.
+// Run emits merge queue depth and completion metrics for all projects with merge queue enabled.
 func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 	defer j.MarkComplete()
 	if j.env == nil {
@@ -56,11 +56,23 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 	if err != nil {
 		grip.Error(ctx, message.WrapError(err, message.Fields{
 			"message": "error finding projects with merge queue enabled",
-			"job_id":  j.ID(),
+			"job":     j.ID(),
 		}))
 		j.AddError(errors.Wrap(err, "finding projects with merge queue enabled"))
 		return
 	}
+
+	previousSnapshots, err := patch.FindAllMergeQueueDepthSnapshots(ctx)
+	if err != nil {
+		grip.Warning(ctx, message.WrapError(err, message.Fields{
+			"message": "error loading merge queue depth snapshots",
+			"job":     j.ID(),
+		}))
+		j.AddError(err)
+		previousSnapshots = map[string]patch.MergeQueueDepthSnapshot{}
+	}
+
+	currentPatchIDsByProject := make(map[string][]string, len(projectRefs))
 
 	for _, projectRef := range projectRefs {
 		if err := j.emitMetricsForProject(ctx, &projectRef); err != nil {
@@ -71,9 +83,41 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 			}))
 			j.AddError(err)
 		}
+
+		snapshotIDs, err := patch.FindMergeQueuePatchIDsForSnapshot(ctx, projectRef.Id)
+		if err != nil {
+			grip.Error(ctx, message.WrapError(err, message.Fields{
+				"message":    "error querying merge queue patch IDs for snapshot",
+				"project_id": projectRef.Id,
+				"job":        j.ID(),
+			}))
+			j.AddError(err)
+		}
+		currentPatchIDsByProject[projectRef.Id] = snapshotIDs
+	}
+
+	// Emit before snapshot upsert so a crash here re-detects departed patches next run.
+	if err := j.emitCompletionMetrics(ctx, previousSnapshots, currentPatchIDsByProject); err != nil {
+		grip.Error(ctx, message.WrapError(err, message.Fields{
+			"message": "error emitting merge queue patch completion metrics",
+			"job":     j.ID(),
+		}))
+		j.AddError(err)
+	}
+
+	for projectID, patchIDs := range currentPatchIDsByProject {
+		if err := patch.UpsertMergeQueueDepthSnapshot(ctx, projectID, patchIDs); err != nil {
+			grip.Error(ctx, message.WrapError(err, message.Fields{
+				"message":    "error upserting merge queue depth snapshot",
+				"project_id": projectID,
+				"job":        j.ID(),
+			}))
+			j.AddError(err)
+		}
 	}
 }
 
+// emitMetricsForProject emits depth metrics for a project.
 func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projectRef *model.ProjectRef) error {
 	patches, err := patch.FindMergeQueuePatchesByProject(ctx, projectRef.Id)
 	if err != nil {
@@ -84,14 +128,12 @@ func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projec
 		return nil
 	}
 
-	// Group patches by queue (org/repo/base_branch combination)
 	type queueKey struct {
 		org        string
 		repo       string
 		baseBranch string
 	}
 	queuePatches := make(map[queueKey][]patch.Patch)
-
 	for i := range patches {
 		p := patches[i]
 		if p.GithubMergeData.Org == "" || p.GithubMergeData.Repo == "" || p.GithubMergeData.BaseBranch == "" {
@@ -115,7 +157,6 @@ func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projec
 				"base_branch": key.baseBranch,
 			}))
 			j.AddError(err)
-			continue
 		}
 	}
 
@@ -213,6 +254,106 @@ func (j *mergeQueueMetricsJob) emitMetricsForQueue(ctx context.Context, projectI
 	span.End()
 
 	return nil
+}
+
+// emitCompletionMetrics finds patches that departed the queue since the last snapshot and emits completion metrics for each.
+func (j *mergeQueueMetricsJob) emitCompletionMetrics(ctx context.Context, previousSnapshots map[string]patch.MergeQueueDepthSnapshot, currentPatchIDsByProject map[string][]string) error {
+	currentSets := make(map[string]map[string]bool, len(currentPatchIDsByProject))
+	for projectID, ids := range currentPatchIDsByProject {
+		set := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			set[id] = true
+		}
+		currentSets[projectID] = set
+	}
+
+	// Diff: patches in N-1 that are absent from N have left the queue.
+	var departedIDs []string
+	for projectID, snapshot := range previousSnapshots {
+		currentSet := currentSets[projectID]
+		for _, id := range snapshot.PatchIDs {
+			if !currentSet[id] {
+				departedIDs = append(departedIDs, id)
+			}
+		}
+	}
+
+	if len(departedIDs) == 0 {
+		return nil
+	}
+
+	patches, err := patch.Find(ctx, patch.ByStringIds(departedIDs))
+	if err != nil {
+		return errors.Wrap(err, "fetching departed merge queue patches")
+	}
+
+	for i := range patches {
+		p := &patches[i]
+		if p.MergeQueueMetricsEmitted {
+			continue
+		}
+		j.emitCompletionMetricsForPatch(ctx, p)
+	}
+	return nil
+}
+
+func (j *mergeQueueMetricsJob) emitCompletionMetricsForPatch(ctx context.Context, p *patch.Patch) {
+	var endTime time.Time
+	var endTimeSource string
+
+	if !p.GithubMergeData.RemovedFromQueueAt.IsZero() {
+		// GitHub removal webhook arrived — use it as the most accurate end time.
+		endTime = p.GithubMergeData.RemovedFromQueueAt
+		endTimeSource = "github_webhook_destroyed"
+	} else {
+		// Webhook not yet received — fall back to when Evergreen tasks finished.
+		_, collectiveFinishTime, err := p.GetCollectiveTimes(ctx)
+		if err != nil {
+			grip.Info(ctx, message.WrapError(err, message.Fields{
+				"message":  "could not get collective times for merge queue patch",
+				"patch_id": p.Id.Hex(),
+				"job":      j.ID(),
+			}))
+			return
+		}
+		endTime = collectiveFinishTime
+		endTimeSource = "evergreen_patch_finish_time"
+	}
+
+	v, err := model.VersionFindOneId(ctx, p.Version)
+	if err != nil {
+		grip.Info(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not find version for merge queue patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
+		return
+	}
+	if v == nil {
+		grip.Info(ctx, message.Fields{
+			"message":  "no version found for merge queue patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		})
+		return
+	}
+
+	if err := model.EmitMergeQueueCompletionMetrics(ctx, p, v, p.Status, endTime, endTimeSource); err != nil {
+		grip.Info(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not emit completion metrics for merge queue patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
+		return
+	}
+
+	if err := patch.SetMergeQueueMetricsEmitted(ctx, p.Id); err != nil {
+		grip.Info(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not mark merge queue metrics emitted for patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
+	}
 }
 
 // PopulateMergeQueueMetricsJobs enqueues a job to emit merge queue depth metrics.
