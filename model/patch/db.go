@@ -28,32 +28,33 @@ const (
 
 // BSON fields for the patches
 var (
-	IdKey                   = bsonutil.MustHaveTag(Patch{}, "Id")
-	DescriptionKey          = bsonutil.MustHaveTag(Patch{}, "Description")
-	ProjectKey              = bsonutil.MustHaveTag(Patch{}, "Project")
-	GithashKey              = bsonutil.MustHaveTag(Patch{}, "Githash")
-	AuthorKey               = bsonutil.MustHaveTag(Patch{}, "Author")
-	NumberKey               = bsonutil.MustHaveTag(Patch{}, "PatchNumber")
-	VersionKey              = bsonutil.MustHaveTag(Patch{}, "Version")
-	StatusKey               = bsonutil.MustHaveTag(Patch{}, "Status")
-	CreateTimeKey           = bsonutil.MustHaveTag(Patch{}, "CreateTime")
-	StartTimeKey            = bsonutil.MustHaveTag(Patch{}, "StartTime")
-	FinishTimeKey           = bsonutil.MustHaveTag(Patch{}, "FinishTime")
-	BuildVariantsKey        = bsonutil.MustHaveTag(Patch{}, "BuildVariants")
-	TasksKey                = bsonutil.MustHaveTag(Patch{}, "Tasks")
-	VariantsTasksKey        = bsonutil.MustHaveTag(Patch{}, "VariantsTasks")
-	PatchesKey              = bsonutil.MustHaveTag(Patch{}, "Patches")
-	ParametersKey           = bsonutil.MustHaveTag(Patch{}, "Parameters")
-	ActivatedKey            = bsonutil.MustHaveTag(Patch{}, "Activated")
-	IsReconfiguredKey       = bsonutil.MustHaveTag(Patch{}, "IsReconfigured")
-	ProjectStorageMethodKey = bsonutil.MustHaveTag(Patch{}, "ProjectStorageMethod")
-	PatchedProjectConfigKey = bsonutil.MustHaveTag(Patch{}, "PatchedProjectConfig")
-	AliasKey                = bsonutil.MustHaveTag(Patch{}, "Alias")
-	GithubMergeDataKey      = bsonutil.MustHaveTag(Patch{}, "GithubMergeData")
-	githubPatchDataKey      = bsonutil.MustHaveTag(Patch{}, "GithubPatchData")
-	MergePatchKey           = bsonutil.MustHaveTag(Patch{}, "MergePatch")
-	TriggersKey             = bsonutil.MustHaveTag(Patch{}, "Triggers")
-	HiddenKey               = bsonutil.MustHaveTag(Patch{}, "Hidden")
+	IdKey                       = bsonutil.MustHaveTag(Patch{}, "Id")
+	DescriptionKey              = bsonutil.MustHaveTag(Patch{}, "Description")
+	ProjectKey                  = bsonutil.MustHaveTag(Patch{}, "Project")
+	GithashKey                  = bsonutil.MustHaveTag(Patch{}, "Githash")
+	AuthorKey                   = bsonutil.MustHaveTag(Patch{}, "Author")
+	NumberKey                   = bsonutil.MustHaveTag(Patch{}, "PatchNumber")
+	VersionKey                  = bsonutil.MustHaveTag(Patch{}, "Version")
+	StatusKey                   = bsonutil.MustHaveTag(Patch{}, "Status")
+	CreateTimeKey               = bsonutil.MustHaveTag(Patch{}, "CreateTime")
+	StartTimeKey                = bsonutil.MustHaveTag(Patch{}, "StartTime")
+	FinishTimeKey               = bsonutil.MustHaveTag(Patch{}, "FinishTime")
+	BuildVariantsKey            = bsonutil.MustHaveTag(Patch{}, "BuildVariants")
+	TasksKey                    = bsonutil.MustHaveTag(Patch{}, "Tasks")
+	VariantsTasksKey            = bsonutil.MustHaveTag(Patch{}, "VariantsTasks")
+	PatchesKey                  = bsonutil.MustHaveTag(Patch{}, "Patches")
+	ParametersKey               = bsonutil.MustHaveTag(Patch{}, "Parameters")
+	ActivatedKey                = bsonutil.MustHaveTag(Patch{}, "Activated")
+	IsReconfiguredKey           = bsonutil.MustHaveTag(Patch{}, "IsReconfigured")
+	ProjectStorageMethodKey     = bsonutil.MustHaveTag(Patch{}, "ProjectStorageMethod")
+	PatchedProjectConfigKey     = bsonutil.MustHaveTag(Patch{}, "PatchedProjectConfig")
+	AliasKey                    = bsonutil.MustHaveTag(Patch{}, "Alias")
+	GithubMergeDataKey          = bsonutil.MustHaveTag(Patch{}, "GithubMergeData")
+	githubPatchDataKey          = bsonutil.MustHaveTag(Patch{}, "GithubPatchData")
+	MergePatchKey               = bsonutil.MustHaveTag(Patch{}, "MergePatch")
+	TriggersKey                 = bsonutil.MustHaveTag(Patch{}, "Triggers")
+	HiddenKey                   = bsonutil.MustHaveTag(Patch{}, "Hidden")
+	MergeQueueMetricsEmittedKey = bsonutil.MustHaveTag(Patch{}, "MergeQueueMetricsEmitted")
 
 	// BSON fields for the module patch struct
 	ModulePatchNameKey    = bsonutil.MustHaveTag(ModulePatch{}, "ModuleName")
@@ -552,6 +553,31 @@ func FindMergeQueuePatchesByProject(ctx context.Context, projectID string) ([]Pa
 	return Find(ctx, db.Query(query))
 }
 
+// FindMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that have not yet
+// received a GitHub removal webhook and have not emitted completion metrics.
+func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
+	timeThreshold := time.Now().Add(-24 * time.Hour)
+
+	query := bson.M{
+		ProjectKey: projectID,
+		AliasKey:   evergreen.CommitQueueAlias,
+		StatusKey: bson.M{
+			"$in": []string{evergreen.VersionSucceeded, evergreen.VersionFailed},
+		},
+		CreateTimeKey: bson.M{
+			"$gte": timeThreshold,
+		},
+		bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey): bson.M{
+			"$exists": false,
+		},
+		MergeQueueMetricsEmittedKey: bson.M{
+			"$ne": true,
+		},
+	}
+
+	return Find(ctx, db.Query(query))
+}
+
 // determineInvalidatedByUpstream determines if a merge queue patch was invalidated due to
 // upstream failure rather than its own failure.
 func determineInvalidatedByUpstream(ctx context.Context, p *Patch, reason string, removalTime time.Time) bool {
@@ -685,4 +711,12 @@ func MarkMergeQueuePatchesRemovedFromQueue(ctx context.Context, org, repo, headS
 	}
 
 	return updatedPatchIDs, nil
+}
+
+// SetMergeQueueMetricsEmitted marks the patch so the cron job does not emit metrics for it again.
+func SetMergeQueueMetricsEmitted(ctx context.Context, patchID mgobson.ObjectId) error {
+	return UpdateOne(ctx,
+		bson.M{IdKey: patchID},
+		bson.M{"$set": bson.M{MergeQueueMetricsEmittedKey: true}},
+	)
 }

@@ -787,3 +787,67 @@ func TestMarkMergeQueuePatchesRemovedFromQueue(t *testing.T) {
 	_, err = MarkMergeQueuePatchesRemovedFromQueue(t.Context(), "mongodb", "mongo", "abc123", "")
 	assert.Error(t, err)
 }
+
+func TestSetMergeQueueMetricsEmittedPersistsFlag(t *testing.T) {
+	require.NoError(t, db.ClearCollections(Collection))
+
+	p := Patch{Id: bson.NewObjectId()}
+	require.NoError(t, db.Insert(t.Context(), Collection, p))
+
+	require.NoError(t, SetMergeQueueMetricsEmitted(t.Context(), p.Id))
+
+	updated, err := FindOneId(t.Context(), p.Id.Hex())
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.True(t, updated.MergeQueueMetricsEmitted)
+}
+
+func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches(t *testing.T) {
+	require.NoError(t, db.ClearCollections(Collection))
+
+	projectID := "my-project"
+	now := time.Now()
+
+	// Should be returned: finalized, no webhook, not emitted.
+	eligible := Patch{
+		Id:         bson.NewObjectId(),
+		Project:    projectID,
+		Alias:      evergreen.CommitQueueAlias,
+		Status:     evergreen.VersionSucceeded,
+		CreateTime: now,
+	}
+	// Should be excluded: still running.
+	stillRunning := Patch{
+		Id:         bson.NewObjectId(),
+		Project:    projectID,
+		Alias:      evergreen.CommitQueueAlias,
+		Status:     evergreen.VersionStarted,
+		CreateTime: now,
+	}
+	// Should be excluded: webhook already received.
+	webhookReceived := Patch{
+		Id:         bson.NewObjectId(),
+		Project:    projectID,
+		Alias:      evergreen.CommitQueueAlias,
+		Status:     evergreen.VersionSucceeded,
+		CreateTime: now,
+		GithubMergeData: thirdparty.GithubMergeGroup{
+			RemovedFromQueueAt: now.Add(-5 * time.Minute),
+		},
+	}
+	// Should be excluded: metrics already emitted.
+	alreadyEmitted := Patch{
+		Id:                       bson.NewObjectId(),
+		Project:                  projectID,
+		Alias:                    evergreen.CommitQueueAlias,
+		Status:                   evergreen.VersionSucceeded,
+		CreateTime:               now,
+		MergeQueueMetricsEmitted: true,
+	}
+	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted))
+
+	patches, err := FindMergeQueuePatchesMissingCompletionMetrics(t.Context(), projectID)
+	require.NoError(t, err)
+	require.Len(t, patches, 1)
+	assert.Equal(t, eligible.Id, patches[0].Id)
+}
