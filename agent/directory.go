@@ -233,10 +233,7 @@ func (a *Agent) removeAll(ctx context.Context, dir string) error {
 	// remove (e.g., root-owned files written by containers into the task
 	// directory via bind mounts).
 	grip.Warningf(ctx, "Standard removal of task directory '%s' failed, attempting privileged removal.", dir)
-	if err := exec.Command("sudo", "rm", "-rf", dir).Run(); err != nil {
-		return errors.Wrapf(err, "privileged removal of task directory '%s' failed", dir)
-	}
-	return nil
+	return errors.Wrapf(exec.Command("sudo", "rm", "-rf", dir).Run(), "privileged removal of task directory '%s' failed", dir)
 }
 
 // logRemovalFailureDiagnostics logs remaining file metadata and active mounts
@@ -278,9 +275,7 @@ func logRemovalFailureDiagnostics(ctx context.Context, dir string, mounts []stri
 	})
 }
 
-// activeMountsUnder detects bind mounts at or under dir by reading
-// /proc/self/mountinfo. Containerized tasks can leave bind mounts that cause
-// os.RemoveAll to fail with EBUSY even after permission changes. Linux-only;
+// activeMountsUnder returns bind mount points at or under dir. Linux-only;
 // returns nil on other platforms.
 func activeMountsUnder(ctx context.Context, dir string) []string {
 	if runtime.GOOS != "linux" {
