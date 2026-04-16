@@ -6,6 +6,7 @@ import (
 
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/cost"
+	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/utility"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,5 +143,49 @@ func TestVersionBuildFromServiceCost(t *testing.T) {
 
 		assert.Nil(t, apiVersion.Cost)
 		assert.Nil(t, apiVersion.PredictedCost)
+	})
+}
+
+func TestVersionBuildFromServiceS3Usage(t *testing.T) {
+	t.Run("PopulatedS3UsageIsExposed", func(t *testing.T) {
+		v := model.Version{
+			Id: "v-with-s3-usage",
+			S3Usage: s3usage.S3Usage{
+				Artifacts: s3usage.ArtifactMetrics{
+					S3UploadMetrics: s3usage.S3UploadMetrics{
+						PutRequests: 100,
+						UploadBytes: 1024 * 1024,
+					},
+					Count: 5,
+				},
+				Logs: s3usage.LogMetrics{
+					S3UploadMetrics: s3usage.S3UploadMetrics{
+						PutRequests: 50,
+						UploadBytes: 512 * 1024,
+					},
+				},
+			},
+		}
+
+		apiVersion := &APIVersion{}
+		apiVersion.BuildFromService(t.Context(), v)
+
+		require.NotNil(t, apiVersion.S3Usage)
+		assert.Equal(t, 100, apiVersion.S3Usage.Artifacts.PutRequests)
+		assert.Equal(t, int64(1024*1024), apiVersion.S3Usage.Artifacts.UploadBytes)
+		assert.Equal(t, 5, apiVersion.S3Usage.Artifacts.Count)
+		assert.Equal(t, 50, apiVersion.S3Usage.Logs.PutRequests)
+		assert.Equal(t, int64(512*1024), apiVersion.S3Usage.Logs.UploadBytes)
+	})
+
+	t.Run("ZeroS3UsageIsNil", func(t *testing.T) {
+		v := model.Version{
+			Id: "v-no-s3-usage",
+		}
+
+		apiVersion := &APIVersion{}
+		apiVersion.BuildFromService(t.Context(), v)
+
+		assert.Nil(t, apiVersion.S3Usage)
 	})
 }
