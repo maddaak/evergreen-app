@@ -782,7 +782,7 @@ func (h *reportS3UsageHandler) Run(ctx context.Context) gimlet.Responder {
 	v, err := model.VersionFindOneId(ctx, t.Version)
 	if err != nil {
 		grip.Error(ctx, errors.Wrapf(err, "finding version '%s' to update aggregate task costs", t.Version))
-	} else if v != nil && evergreen.IsFinishedVersionStatus(v.Status) {
+	} else if v != nil {
 		grip.Error(ctx, errors.Wrapf(v.UpdateAggregateTaskCosts(ctx), "updating aggregate task costs for version '%s' after S3 usage report", v.Id))
 	}
 

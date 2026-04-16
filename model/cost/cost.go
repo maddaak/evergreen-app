@@ -5,6 +5,10 @@ import "github.com/mongodb/anser/bsonutil"
 var (
 	OnDemandEC2CostKey               = bsonutil.MustHaveTag(Cost{}, "OnDemandEC2Cost")
 	AdjustedEC2CostKey               = bsonutil.MustHaveTag(Cost{}, "AdjustedEC2Cost")
+	OnDemandEBSThroughputCostKey     = bsonutil.MustHaveTag(Cost{}, "OnDemandEBSThroughputCost")
+	AdjustedEBSThroughputCostKey     = bsonutil.MustHaveTag(Cost{}, "AdjustedEBSThroughputCost")
+	OnDemandEBSStorageCostKey        = bsonutil.MustHaveTag(Cost{}, "OnDemandEBSStorageCost")
+	AdjustedEBSStorageCostKey        = bsonutil.MustHaveTag(Cost{}, "AdjustedEBSStorageCost")
 	OnDemandS3ArtifactPutCostKey     = bsonutil.MustHaveTag(Cost{}, "OnDemandS3ArtifactPutCost")
 	AdjustedS3ArtifactPutCostKey     = bsonutil.MustHaveTag(Cost{}, "AdjustedS3ArtifactPutCost")
 	OnDemandS3LogPutCostKey          = bsonutil.MustHaveTag(Cost{}, "OnDemandS3LogPutCost")
