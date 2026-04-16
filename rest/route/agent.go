@@ -783,6 +783,7 @@ func (h *reportS3UsageHandler) Run(ctx context.Context) gimlet.Responder {
 	if err != nil {
 		grip.Error(ctx, errors.Wrapf(err, "finding version '%s' to update aggregate task costs", t.Version))
 	} else if v != nil {
+		// For task groups, this runs once for the group rather than once per task.
 		grip.Error(ctx, errors.Wrapf(v.UpdateAggregateTaskCosts(ctx), "updating aggregate task costs for version '%s' after S3 usage report", v.Id))
 	}
 
