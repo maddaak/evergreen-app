@@ -8,6 +8,7 @@ import (
 	"github.com/evergreen-ci/evergreen"
 	"github.com/evergreen-ci/evergreen/cloud"
 	"github.com/evergreen-ci/evergreen/db"
+	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/pail"
 	"github.com/evergreen-ci/utility"
 	"github.com/mongodb/anser/bsonutil"
@@ -20,14 +21,10 @@ import (
 
 const (
 	Collection = "s3_lifecycle_rules"
-)
 
-const (
 	BucketTypeAdminManaged  = "admin_managed"
 	BucketTypeUserSpecified = "user_specified"
-)
 
-const (
 	AdminBucketCategoryLog              = "log"
 	AdminBucketCategoryLogLongRetention = "log_long_retention"
 	AdminBucketCategoryLogFailedTasks   = "log_failed_tasks"
@@ -352,4 +349,76 @@ func UpdateSyncError(ctx context.Context, bucketName, filterPrefix, syncError st
 		"updating sync error for bucket '%s' prefix '%s'",
 		bucketName, filterPrefix,
 	)
+}
+
+// BuildFileExpirationLookup resolves FileExpirationInfo for every artifact and log file key in the given S3 usage data.
+// It fetches lifecycle rules only for the buckets used by this task rather than all buckets.
+// Note: this requires a bucket_name index on the s3_lifecycle_rules collection for efficient lookups.
+func BuildFileExpirationLookup(ctx context.Context, usage s3usage.S3Usage, logBucketName string, costConfig *evergreen.CostConfig) (map[string]s3usage.FileExpirationInfo, error) {
+	if costConfig == nil {
+		return nil, errors.New("cost config is required to resolve storage tier info")
+	}
+
+	defaultFileExpiration := s3usage.FileExpirationInfo{ExpirationDays: costConfig.S3Cost.Storage.DefaultMaxArtifactExpirationDays}
+
+	rulesByBucket := map[string][]S3LifecycleRuleDoc{}
+	for _, b := range usage.Artifacts.ArtifactsByBucket {
+		if _, ok := rulesByBucket[b.Bucket]; ok {
+			continue
+		}
+		rules, err := FindAllRulesForBucket(ctx, b.Bucket)
+		if err != nil {
+			grip.Debug(ctx, message.WrapError(err, message.Fields{
+				"message": "getting S3 lifecycle rules for artifact bucket",
+				"bucket":  b.Bucket,
+			}))
+			continue
+		}
+		rulesByBucket[b.Bucket] = rules
+	}
+	if logBucketName != "" {
+		if _, ok := rulesByBucket[logBucketName]; !ok {
+			rules, err := FindAllRulesForBucket(ctx, logBucketName)
+			if err != nil {
+				grip.Debug(ctx, message.WrapError(err, message.Fields{
+					"message": "getting S3 lifecycle rules for log bucket",
+					"bucket":  logBucketName,
+				}))
+			}
+			rulesByBucket[logBucketName] = rules
+		}
+	}
+
+	fileExpiration := map[string]s3usage.FileExpirationInfo{}
+	for _, f := range usage.Artifacts.AllArtifacts() {
+		fileExpiration[f.FileKey] = findFileExpiration(rulesByBucket[f.Bucket], f.FileKey, defaultFileExpiration)
+	}
+	for _, lm := range []s3usage.LogTypeMetrics{usage.Logs.Task, usage.Logs.Agent, usage.Logs.System} {
+		if lm.LogKey == "" {
+			continue
+		}
+		fileExpiration[lm.LogKey] = findFileExpiration(rulesByBucket[logBucketName], lm.LogKey, defaultFileExpiration)
+	}
+	return fileExpiration, nil
+}
+
+// findFileExpiration returns the expiration info for fileKey by matching against lifecycle rules, or the default if none matches.
+func findFileExpiration(rules []S3LifecycleRuleDoc, fileKey string, defaultFileExpiration s3usage.FileExpirationInfo) s3usage.FileExpirationInfo {
+	pailRules := make([]pail.LifecycleRule, 0, len(rules))
+	for _, rule := range rules {
+		var expDays *int32
+		if rule.ExpirationDays != nil {
+			expDays = utility.ToInt32Ptr(int32(*rule.ExpirationDays))
+		}
+		pailRules = append(pailRules, pail.LifecycleRule{
+			Prefix:         rule.FilterPrefix,
+			Status:         rule.RuleStatus,
+			ExpirationDays: expDays,
+		})
+	}
+	matched := pail.FindMatchingRule(pailRules, fileKey)
+	if matched == nil || matched.ExpirationDays == nil {
+		return defaultFileExpiration
+	}
+	return s3usage.FileExpirationInfo{ExpirationDays: int(*matched.ExpirationDays)}
 }

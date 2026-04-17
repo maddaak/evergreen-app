@@ -5116,23 +5116,7 @@ func TestUpdateTaskCost(t *testing.T) {
 		assert.True(t, task.TaskCost.IsZero())
 	})
 
-	t.Run("CalculatesS3PutCostFromArtifactUsage", func(t *testing.T) {
-		require.NoError(t, db.Clear(Collection))
-		task := Task{
-			Id:        "s3_cost",
-			TimeTaken: time.Hour,
-			S3Usage:   s3usage.S3Usage{Artifacts: s3usage.ArtifactMetrics{S3UploadMetrics: s3usage.S3UploadMetrics{PutRequests: 1000}}},
-		}
-		require.NoError(t, task.Insert(ctx))
-
-		require.NoError(t, task.UpdateTaskCost(ctx))
-		var costCfg evergreen.CostConfig
-		require.NoError(t, costCfg.Get(ctx))
-		expectedStd, _ := s3usage.CalculateS3PutCostWithConfig(1000, &costCfg)
-		assert.InDelta(t, expectedStd, task.TaskCost.OnDemandS3ArtifactPutCost, 1e-9)
-	})
-
-	t.Run("CalculatesEC2AndS3Costs", func(t *testing.T) {
+	t.Run("CalculatesEC2Costs", func(t *testing.T) {
 		require.NoError(t, db.ClearCollections(Collection, distro.Collection, evergreen.ConfigCollection))
 
 		costConfig := evergreen.CostConfig{
@@ -5163,8 +5147,7 @@ func TestUpdateTaskCost(t *testing.T) {
 		require.NoError(t, task.UpdateTaskCost(ctx))
 		assert.True(t, task.TaskCost.OnDemandEC2Cost > 0)
 		assert.True(t, task.TaskCost.AdjustedEC2Cost > 0)
-		expectedS3Std, _ := s3usage.CalculateS3PutCostWithConfig(1000, &costConfig)
-		assert.InDelta(t, expectedS3Std, task.TaskCost.OnDemandS3ArtifactPutCost, 1e-9)
+		assert.Equal(t, 0.0, task.TaskCost.OnDemandS3ArtifactPutCost, "S3 costs are not calculated by UpdateTaskCost")
 	})
 
 	t.Run("SkipsUpdateWhenNoCostsCalculated", func(t *testing.T) {
@@ -5186,260 +5169,57 @@ func TestSaveS3Usage(t *testing.T) {
 		require.NoError(t, db.ClearCollections(Collection))
 	})
 
-	defaultCostConfig := evergreen.CostConfig{
-		S3Cost: evergreen.S3CostConfig{
-			Storage: evergreen.S3StorageCostConfig{
-				DefaultMaxArtifactExpirationDays: 365,
+	t.Run("PersistsS3UsageAndAllCostFields", func(t *testing.T) {
+		require.NoError(t, db.ClearCollections(Collection))
+		task := Task{Id: "t1"}
+		task.S3Usage = s3usage.S3Usage{
+			Artifacts: s3usage.ArtifactMetrics{
+				S3UploadMetrics: s3usage.S3UploadMetrics{PutRequests: 50, UploadBytes: 1024 * 1024},
+				Count:           3,
 			},
-		},
-	}
-	multiFileArtifacts := []s3usage.FileMetrics{
-		{RemotePath: "mongodb-mongo-master/abc123/artifacts/binary.tar.gz", FileSizeBytes: 3 * 1024 * 1024},
-		{RemotePath: "mongodb-mongo-master/abc123/artifacts/debug-symbols.tar.gz", FileSizeBytes: 1 * 1024 * 1024},
-		{RemotePath: "mongodb-mongo-master/abc123/artifacts/test-results.json", FileSizeBytes: 1 * 1024 * 1024},
-	}
-	singleFileArtifact := []s3usage.FileMetrics{
-		{RemotePath: "some-project/abc123/artifacts/binary.tar.gz", FileSizeBytes: 5 * 1024 * 1024},
-	}
+		}
+		require.NoError(t, task.Insert(ctx))
 
-	for name, tc := range map[string]struct {
-		task          Task
-		costConfig    *evergreen.CostConfig
-		setupUsage    func(*s3usage.S3Usage)
-		lookup        bucketExpirationLookup
-		logBucketName string
-		assertions    func(*testing.T, *Task)
-	}{
-		"PersistsS3Usage": {
-			task: Task{Id: "t1"},
-			setupUsage: func(u *s3usage.S3Usage) {
-				*u = s3usage.S3Usage{
-					Artifacts: s3usage.ArtifactMetrics{
-						S3UploadMetrics: s3usage.S3UploadMetrics{
-							PutRequests: 50,
-							UploadBytes: 1024 * 1024,
-						},
-						Count: 3,
-					},
-				}
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, 50, dbTask.S3Usage.Artifacts.PutRequests)
-				assert.Equal(t, int64(1024*1024), dbTask.S3Usage.Artifacts.UploadBytes)
-				assert.Equal(t, 3, dbTask.S3Usage.Artifacts.Count)
-			},
-		},
-		"CalculatesCostFromUsage": {
-			task: Task{Id: "t2"},
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					PutRequests: 1000,
-					UploadBytes: 5 * 1024 * 1024,
-					FileCount:   3,
-					MaxPuts:     500,
-					MinPuts:     1,
-					Bucket:      "mciuploads",
-					Files:       multiFileArtifacts,
-				})
-				u.IncrementLogs(50, 500000, "", "")
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, 1000, dbTask.S3Usage.Artifacts.PutRequests)
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactPutCost > 0)
-				assert.Equal(t, 50, dbTask.S3Usage.Logs.PutRequests)
-				assert.True(t, dbTask.TaskCost.OnDemandS3LogPutCost > 0)
-			},
-		},
-		"CalculatesCostFromUsageWithDefaultExpiration": {
-			task:       Task{Id: "t3"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					PutRequests: 1000,
-					UploadBytes: 5 * 1024 * 1024,
-					FileCount:   3,
-					MaxPuts:     500,
-					MinPuts:     1,
-					Bucket:      "mciuploads",
-					Files:       multiFileArtifacts,
-				})
-				u.IncrementLogs(50, 500000, "", "")
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 0, false
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, 1000, dbTask.S3Usage.Artifacts.PutRequests)
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactPutCost > 0)
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactStorageCost > 0)
-				assert.Equal(t, 50, dbTask.S3Usage.Logs.PutRequests)
-				assert.True(t, dbTask.TaskCost.OnDemandS3LogPutCost > 0)
-			},
-		},
-		"CalculatesLogChunkCostOnly": {
-			task: Task{Id: "t4"},
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementLogs(100, 200000, "", "")
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, 0, dbTask.S3Usage.Artifacts.PutRequests)
-				assert.Equal(t, float64(0), dbTask.TaskCost.OnDemandS3ArtifactPutCost)
-				assert.Equal(t, 100, dbTask.S3Usage.Logs.PutRequests)
-				assert.True(t, dbTask.TaskCost.OnDemandS3LogPutCost > 0)
-			},
-		},
-		"CalculatesArtifactStorageCostWithDefaultExpiration": {
-			task:       Task{Id: "t5", Project: "some-project"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					UploadBytes: 10 * 1024 * 1024,
-					FileCount:   2,
-					Bucket:      "mciuploads",
-					Files: []s3usage.FileMetrics{
-						{RemotePath: "some-project/abc123/artifacts/core-dump.tar.gz", FileSizeBytes: 6 * 1024 * 1024},
-						{RemotePath: "some-project/abc123/artifacts/binary.tar.gz", FileSizeBytes: 4 * 1024 * 1024},
-					},
-				})
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 0, false
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactStorageCost > 0)
-			},
-		},
-		"NilLookupSkipsStorageCostCalculation": {
-			task:       Task{Id: "t9", Project: "some-project"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					UploadBytes: 5 * 1024 * 1024,
-					FileCount:   1,
-					Bucket:      "mciuploads",
-					Files:       singleFileArtifact,
-				})
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, float64(0), dbTask.TaskCost.OnDemandS3ArtifactStorageCost)
-			},
-		},
-		"CalculatesStorageCostWithLookupMatch": {
-			task:       Task{Id: "t6", Project: "some-project"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					UploadBytes: 5 * 1024 * 1024,
-					FileCount:   1,
-					Bucket:      "mciuploads",
-					Files:       singleFileArtifact,
-				})
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 90, true
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactStorageCost > 0)
-				expectedStd, expectedAdj := s3usage.CalculateS3StorageCostWithConfig(ctx, 5*1024*1024, 90, &defaultCostConfig)
-				assert.InDelta(t, expectedStd, dbTask.TaskCost.OnDemandS3ArtifactStorageCost, 0.0001)
-				assert.InDelta(t, expectedAdj, dbTask.TaskCost.AdjustedS3ArtifactStorageCost, 0.0001)
-			},
-		},
-		"CalculatesStorageCostWithLookupMiss": {
-			task:       Task{Id: "t7", Project: "some-project"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementArtifacts(s3usage.ArtifactIncrementOptions{
-					UploadBytes: 5 * 1024 * 1024,
-					FileCount:   1,
-					Bucket:      "mciuploads",
-					Files:       singleFileArtifact,
-				})
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 0, false
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.OnDemandS3ArtifactStorageCost > 0)
-				expectedStd, expectedAdj := s3usage.CalculateS3StorageCostWithConfig(ctx, 5*1024*1024, 365, &defaultCostConfig)
-				assert.InDelta(t, expectedStd, dbTask.TaskCost.OnDemandS3ArtifactStorageCost, 0.0001)
-				assert.InDelta(t, expectedAdj, dbTask.TaskCost.AdjustedS3ArtifactStorageCost, 0.0001)
-			},
-		},
-		"ZeroUsagePersistsWithoutCost": {
-			task: Task{Id: "t8"},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.IsZero())
-			},
-		},
-		"CalculatesLogStorageCostWithLookupMatch": {
-			task:          Task{Id: "t10"},
-			costConfig:    &defaultCostConfig,
-			logBucketName: "log-bucket",
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementLogs(10, 1024*1024, s3usage.LogTypeTask, "some-project/abc123/0/task_logs/task")
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 60, true
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.OnDemandS3LogStorageCost > 0)
-				expectedStd, expectedAdj := s3usage.CalculateS3StorageCostWithConfig(ctx, 1024*1024, 60, &defaultCostConfig)
-				assert.InDelta(t, expectedStd, dbTask.TaskCost.OnDemandS3LogStorageCost, 0.0001)
-				assert.InDelta(t, expectedAdj, dbTask.TaskCost.AdjustedS3LogStorageCost, 0.0001)
-			},
-		},
-		"CalculatesLogStorageCostWithLookupMissUsesDefault": {
-			task:          Task{Id: "t11"},
-			costConfig:    &defaultCostConfig,
-			logBucketName: "log-bucket",
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementLogs(10, 1024*1024, s3usage.LogTypeTask, "some-project/abc123/0/task_logs/task")
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 0, false
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.True(t, dbTask.TaskCost.OnDemandS3LogStorageCost > 0)
-				expectedStd, expectedAdj := s3usage.CalculateS3StorageCostWithConfig(ctx, 1024*1024, defaultCostConfig.S3Cost.Storage.DefaultMaxArtifactExpirationDays, &defaultCostConfig)
-				assert.InDelta(t, expectedStd, dbTask.TaskCost.OnDemandS3LogStorageCost, 0.0001)
-				assert.InDelta(t, expectedAdj, dbTask.TaskCost.AdjustedS3LogStorageCost, 0.0001)
-			},
-		},
-		"EmptyLogBucketNameSkipsLogStorageCost": {
-			task:       Task{Id: "t12"},
-			costConfig: &defaultCostConfig,
-			setupUsage: func(u *s3usage.S3Usage) {
-				u.IncrementLogs(10, 1024*1024, s3usage.LogTypeTask, "some-project/abc123/0/task_logs/task")
-			},
-			lookup: func(_ context.Context, _, _ string) (int, bool) {
-				return 60, true
-			},
-			assertions: func(t *testing.T, dbTask *Task) {
-				assert.Equal(t, float64(0), dbTask.TaskCost.OnDemandS3LogStorageCost)
-			},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			require.NoError(t, db.ClearCollections(Collection))
-			if tc.costConfig != nil {
-				require.NoError(t, tc.costConfig.Set(ctx))
-				t.Cleanup(func() {
-					require.NoError(t, (&evergreen.CostConfig{}).Set(ctx))
-				})
-			}
-			require.NoError(t, tc.task.Insert(ctx))
-			if tc.setupUsage != nil {
-				tc.setupUsage(&tc.task.S3Usage)
-			}
-			require.NoError(t, tc.task.SaveS3Usage(ctx, tc.lookup, tc.logBucketName))
+		s3Costs := s3usage.S3Costs{
+			OnDemandArtifactPutCost:     0.005,
+			AdjustedArtifactPutCost:     0.004,
+			OnDemandLogPutCost:          0.001,
+			AdjustedLogPutCost:          0.0008,
+			OnDemandArtifactStorageCost: 0.002,
+			AdjustedArtifactStorageCost: 0.0016,
+			OnDemandLogStorageCost:      0.0005,
+			AdjustedLogStorageCost:      0.0004,
+		}
+		require.NoError(t, task.SaveS3Usage(ctx, s3Costs))
 
-			dbTask, err := FindOneId(ctx, tc.task.Id)
-			require.NoError(t, err)
-			require.NotNil(t, dbTask)
-			tc.assertions(t, dbTask)
-		})
-	}
+		dbTask, err := FindOneId(ctx, task.Id)
+		require.NoError(t, err)
+		require.NotNil(t, dbTask)
+		assert.Equal(t, 50, dbTask.S3Usage.Artifacts.PutRequests)
+		assert.Equal(t, int64(1024*1024), dbTask.S3Usage.Artifacts.UploadBytes)
+		assert.Equal(t, 3, dbTask.S3Usage.Artifacts.Count)
+		assert.Equal(t, 0.005, dbTask.TaskCost.OnDemandS3ArtifactPutCost)
+		assert.Equal(t, 0.004, dbTask.TaskCost.AdjustedS3ArtifactPutCost)
+		assert.Equal(t, 0.001, dbTask.TaskCost.OnDemandS3LogPutCost)
+		assert.Equal(t, 0.0008, dbTask.TaskCost.AdjustedS3LogPutCost)
+		assert.Equal(t, 0.002, dbTask.TaskCost.OnDemandS3ArtifactStorageCost)
+		assert.Equal(t, 0.0016, dbTask.TaskCost.AdjustedS3ArtifactStorageCost)
+		assert.Equal(t, 0.0005, dbTask.TaskCost.OnDemandS3LogStorageCost)
+		assert.Equal(t, 0.0004, dbTask.TaskCost.AdjustedS3LogStorageCost)
+	})
+
+	t.Run("ZeroCostsPersistWithZeroCostFields", func(t *testing.T) {
+		require.NoError(t, db.ClearCollections(Collection))
+		task := Task{Id: "t2"}
+		require.NoError(t, task.Insert(ctx))
+
+		require.NoError(t, task.SaveS3Usage(ctx, s3usage.S3Costs{}))
+
+		dbTask, err := FindOneId(ctx, task.Id)
+		require.NoError(t, err)
+		require.NotNil(t, dbTask)
+		assert.True(t, dbTask.TaskCost.IsZero())
+	})
 }
 
 func TestHasValidDistro(t *testing.T) {

@@ -444,13 +444,13 @@ func TestSignedUrlVisibility(t *testing.T) {
 				LocalPath:     file1,
 				RemotePath:    remoteFile,
 				FileSizeBytes: file1Info.Size(),
-				PutRequests:   s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
+				PutRequests:   s3usage.CalculatePutRequests(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
 			},
 			{
 				LocalPath:     file2,
 				RemotePath:    remoteFile,
 				FileSizeBytes: file2Info.Size(),
-				PutRequests:   s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
+				PutRequests:   s3usage.CalculatePutRequests(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
 			},
 		}
 
@@ -515,13 +515,13 @@ func TestContentTypeSaved(t *testing.T) {
 			LocalPath:     file1,
 			RemotePath:    remoteFile,
 			FileSizeBytes: file1Info.Size(),
-			PutRequests:   s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
+			PutRequests:   s3usage.CalculatePutRequests(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file1Info.Size()),
 		},
 		{
 			LocalPath:     file2,
 			RemotePath:    remoteFile,
 			FileSizeBytes: file2Info.Size(),
-			PutRequests:   s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
+			PutRequests:   s3usage.CalculatePutRequests(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, file2Info.Size()),
 		},
 	}
 
@@ -1031,7 +1031,7 @@ func TestS3PutWithAssociatedLinks(t *testing.T) {
 			LocalPath:     s3PutFile,
 			RemotePath:    remoteFile,
 			FileSizeBytes: s3PutFileInfo.Size(),
-			PutRequests:   s3usage.CalculatePutRequestsWithContext(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, s3PutFileInfo.Size()),
+			PutRequests:   s3usage.CalculatePutRequests(s3usage.S3BucketTypeLarge, s3usage.S3UploadMethodPut, s3PutFileInfo.Size()),
 		},
 	}
 

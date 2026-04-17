@@ -7,6 +7,7 @@ import (
 
 	"github.com/evergreen-ci/evergreen"
 	"github.com/evergreen-ci/evergreen/db"
+	"github.com/evergreen-ci/evergreen/model/s3usage"
 	_ "github.com/evergreen-ci/evergreen/testutil"
 	"github.com/evergreen-ci/pail"
 	"github.com/pkg/errors"
@@ -284,6 +285,77 @@ func (m *mockS3LifecycleClient) GetBucketLifecycleConfiguration(ctx context.Cont
 		return nil, m.err
 	}
 	return m.rules, nil
+}
+
+func TestFindFileExpiration(t *testing.T) {
+	defaultExpiration := s3usage.FileExpirationInfo{ExpirationDays: 365}
+
+	tests := []struct {
+		name          string
+		rules         []S3LifecycleRuleDoc
+		fileKey       string
+		expectDefault bool
+		expectedDays  int
+	}{
+		{
+			name:          "NoRulesShouldReturnDefault",
+			rules:         nil,
+			fileKey:       "logs/build/output.txt",
+			expectDefault: true,
+		},
+		{
+			name: "NoMatchingPrefixShouldReturnDefault",
+			rules: []S3LifecycleRuleDoc{
+				{FilterPrefix: "sandbox/", RuleStatus: "Enabled", ExpirationDays: ptr(90)},
+			},
+			fileKey:       "logs/build/output.txt",
+			expectDefault: true,
+		},
+		{
+			name: "MatchingPrefixShouldReturnDays",
+			rules: []S3LifecycleRuleDoc{
+				{FilterPrefix: "logs/", RuleStatus: "Enabled", ExpirationDays: ptr(90)},
+			},
+			fileKey:      "logs/build/output.txt",
+			expectedDays: 90,
+		},
+		{
+			name: "MostSpecificPrefixShouldWin",
+			rules: []S3LifecycleRuleDoc{
+				{FilterPrefix: "logs/", RuleStatus: "Enabled", ExpirationDays: ptr(90)},
+				{FilterPrefix: "logs/build/", RuleStatus: "Enabled", ExpirationDays: ptr(30)},
+			},
+			fileKey:      "logs/build/output.txt",
+			expectedDays: 30,
+		},
+		{
+			name: "DisabledRuleShouldReturnDefault",
+			rules: []S3LifecycleRuleDoc{
+				{FilterPrefix: "logs/", RuleStatus: "Disabled", ExpirationDays: ptr(90)},
+			},
+			fileKey:       "logs/build/output.txt",
+			expectDefault: true,
+		},
+		{
+			name: "NilExpirationDaysShouldReturnDefault",
+			rules: []S3LifecycleRuleDoc{
+				{FilterPrefix: "logs/", RuleStatus: "Enabled", ExpirationDays: nil},
+			},
+			fileKey:       "logs/build/output.txt",
+			expectDefault: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findFileExpiration(tt.rules, tt.fileKey, defaultExpiration)
+			if tt.expectDefault {
+				assert.Equal(t, defaultExpiration, result)
+			} else {
+				assert.Equal(t, tt.expectedDays, result.ExpirationDays)
+			}
+		})
+	}
 }
 
 func TestDiscoverAndCacheProjectBucket(t *testing.T) {

@@ -26,7 +26,6 @@ import (
 	"github.com/evergreen-ci/evergreen/model/testresult"
 	"github.com/evergreen-ci/evergreen/thirdparty"
 	"github.com/evergreen-ci/gimlet"
-	"github.com/evergreen-ci/pail"
 	"github.com/evergreen-ci/utility"
 	"github.com/google/go-github/v70/github"
 	"github.com/mongodb/grip"
@@ -699,28 +698,6 @@ func discoverAndCacheBucketLifecycleRules(ctx context.Context, t *task.Task, fil
 	}
 }
 
-// findExpirationDaysForFileKey returns the expiration days from the most specific lifecycle rule
-// for the given file key.
-func findExpirationDaysForFileKey(rules []s3lifecycle.S3LifecycleRuleDoc, fileKey string) (days int, found bool) {
-	pailRules := make([]pail.LifecycleRule, 0, len(rules))
-	for _, ruleDoc := range rules {
-		var expDays *int32
-		if ruleDoc.ExpirationDays != nil {
-			expDays = utility.ToInt32Ptr(int32(*ruleDoc.ExpirationDays))
-		}
-		pailRules = append(pailRules, pail.LifecycleRule{
-			Prefix:         ruleDoc.FilterPrefix,
-			Status:         ruleDoc.RuleStatus,
-			ExpirationDays: expDays,
-		})
-	}
-	rule := pail.FindMatchingRule(pailRules, fileKey)
-	if rule == nil || rule.ExpirationDays == nil {
-		return 0, false
-	}
-	return int(*rule.ExpirationDays), true
-}
-
 // POST /rest/v2/task/{task_id}/s3_usage
 type reportS3UsageHandler struct {
 	taskID  string
@@ -753,66 +730,79 @@ func (h *reportS3UsageHandler) Run(ctx context.Context) gimlet.Responder {
 
 	t.S3Usage = h.s3Usage
 
-	allRules, err := s3lifecycle.FindAllRules(ctx)
-	var lookup func(ctx context.Context, bucket, fileKey string) (int, bool)
+	var costConfig *evergreen.CostConfig
+	var fileExpiration map[string]s3usage.FileExpirationInfo
+	settings, err := evergreen.GetConfig(ctx)
 	if err != nil {
-		grip.Warning(ctx, message.WrapError(err, message.Fields{
-			"message": "getting S3 lifecycle rules for storage cost calculation, skipping storage cost calculation",
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message": "could not get admin settings, skipping cost calculations",
 			"task_id": t.Id,
 		}))
 	} else {
-		rulesByBucket := map[string][]s3lifecycle.S3LifecycleRuleDoc{}
-		for _, rule := range allRules {
-			rulesByBucket[rule.BucketName] = append(rulesByBucket[rule.BucketName], rule)
+		costConfig = &settings.Cost
+		var logBucketName string
+		if t.TaskOutputInfo != nil {
+			logBucketName = t.TaskOutputInfo.TaskLogs.BucketConfig.Name
 		}
-		lookup = func(ctx context.Context, bucket, fileKey string) (int, bool) {
-			return findExpirationDaysForFileKey(rulesByBucket[bucket], fileKey)
+		fileExpiration, err = s3lifecycle.BuildFileExpirationLookup(ctx, t.S3Usage, logBucketName, costConfig)
+		if err != nil {
+			grip.Debug(ctx, message.WrapError(err, message.Fields{
+				"message": "resolving S3 lifecycle tier info",
+				"task_id": t.Id,
+			}))
 		}
 	}
 
-	logBucketName := ""
-	if t.TaskOutputInfo != nil {
-		logBucketName = t.TaskOutputInfo.TaskLogs.BucketConfig.Name
-	}
-
-	if err := t.SaveS3Usage(ctx, lookup, logBucketName); err != nil {
-		return gimlet.MakeJSONInternalErrorResponder(errors.Wrapf(err, "saving S3 usage for task '%s'", h.taskID))
+	s3Costs := s3usage.CalculateAllCosts(ctx, t.S3Usage, fileExpiration, costConfig)
+	if err := t.SaveS3Usage(ctx, s3Costs); err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message": "saving S3 usage for task",
+			"task_id": t.Id,
+		}))
 	}
 
 	v, err := model.VersionFindOneId(ctx, t.Version)
 	if err != nil {
-		grip.Error(ctx, errors.Wrapf(err, "finding version '%s' to update aggregate task costs", t.Version))
+		grip.Debug(ctx, errors.Wrapf(err, "finding version '%s' to update aggregate task costs", t.Version))
 	} else if v != nil {
 		// For task groups, this runs once for the group rather than once per task.
-		grip.Error(ctx, errors.Wrapf(v.UpdateAggregateTaskCosts(ctx), "updating aggregate task costs for version '%s' after S3 usage report", v.Id))
-	}
-
-	var avgFilePutCost, maxFilePutCost, minFilePutCost float64
-	if t.S3Usage.Artifacts.Count > 0 && t.S3Usage.Artifacts.PutRequests > 0 {
-		costPerPut := t.TaskCost.OnDemandS3ArtifactPutCost / float64(t.S3Usage.Artifacts.PutRequests)
-		avgFilePutCost = t.TaskCost.OnDemandS3ArtifactPutCost / float64(t.S3Usage.Artifacts.Count)
-		maxFilePutCost = costPerPut * float64(t.S3Usage.Artifacts.ArtifactWithMaxPutRequests)
-		minFilePutCost = costPerPut * float64(t.S3Usage.Artifacts.ArtifactWithMinPutRequests)
+		grip.Debug(ctx, errors.Wrapf(v.UpdateAggregateTaskCosts(ctx), "updating aggregate task costs for version '%s' after S3 usage report", v.Id))
 	}
 
 	s3Attrs := []attribute.KeyValue{
 		attribute.String(evergreen.TaskIDOtelAttribute, t.Id),
+		attribute.Bool(evergreen.S3CostCalculatedOtelAttribute, costConfig != nil),
 		attribute.Int(evergreen.S3ArtifactPutRequestsOtelAttribute, t.S3Usage.Artifacts.PutRequests),
 		attribute.Int64(evergreen.S3ArtifactUploadBytesOtelAttribute, t.S3Usage.Artifacts.UploadBytes),
 		attribute.Int(evergreen.S3ArtifactCountOtelAttribute, t.S3Usage.Artifacts.Count),
-		attribute.Float64(evergreen.OnDemandS3ArtifactPutCostOtelAttribute, t.TaskCost.OnDemandS3ArtifactPutCost),
-		attribute.Float64(evergreen.AdjustedS3ArtifactPutCostOtelAttribute, t.TaskCost.AdjustedS3ArtifactPutCost),
-		attribute.Float64(evergreen.OnDemandS3ArtifactStorageCostOtelAttribute, t.TaskCost.OnDemandS3ArtifactStorageCost),
-		attribute.Float64(evergreen.AdjustedS3ArtifactStorageCostOtelAttribute, t.TaskCost.AdjustedS3ArtifactStorageCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactPutCostOtelAttribute, s3Costs.OnDemandArtifactPutCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactPutCostOtelAttribute, s3Costs.AdjustedArtifactPutCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactStorageCostOtelAttribute, s3Costs.OnDemandArtifactStorageCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactStorageCostOtelAttribute, s3Costs.AdjustedArtifactStorageCost),
 		attribute.Int(evergreen.S3LogPutRequestsOtelAttribute, t.S3Usage.Logs.PutRequests),
 		attribute.Int64(evergreen.S3LogUploadBytesOtelAttribute, t.S3Usage.Logs.UploadBytes),
-		attribute.Float64(evergreen.OnDemandS3LogPutCostOtelAttribute, t.TaskCost.OnDemandS3LogPutCost),
-		attribute.Float64(evergreen.AdjustedS3LogPutCostOtelAttribute, t.TaskCost.AdjustedS3LogPutCost),
-		attribute.Float64(evergreen.OnDemandS3LogStorageCostOtelAttribute, t.TaskCost.OnDemandS3LogStorageCost),
-		attribute.Float64(evergreen.AdjustedS3LogStorageCostOtelAttribute, t.TaskCost.AdjustedS3LogStorageCost),
-		attribute.Float64(evergreen.S3ArtifactAvgFilePutCostOtelAttribute, avgFilePutCost),
-		attribute.Float64(evergreen.S3ArtifactWithMaxPutRequestsCostOtelAttribute, maxFilePutCost),
-		attribute.Float64(evergreen.S3ArtifactWithMinPutRequestsCostOtelAttribute, minFilePutCost),
+		attribute.Float64(evergreen.OnDemandS3LogPutCostOtelAttribute, s3Costs.OnDemandLogPutCost),
+		attribute.Float64(evergreen.AdjustedS3LogPutCostOtelAttribute, s3Costs.AdjustedLogPutCost),
+		attribute.Float64(evergreen.OnDemandS3LogStorageCostOtelAttribute, s3Costs.OnDemandLogStorageCost),
+		attribute.Float64(evergreen.AdjustedS3LogStorageCostOtelAttribute, s3Costs.AdjustedLogStorageCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactAvgPutCostOtelAttribute, s3Costs.OnDemandAvgArtifactPutCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactAvgPutCostOtelAttribute, s3Costs.AdjustedAvgArtifactPutCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactMaxPutCostOtelAttribute, s3Costs.OnDemandMaxArtifactPutCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactMaxPutCostOtelAttribute, s3Costs.AdjustedMaxArtifactPutCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactMinPutCostOtelAttribute, s3Costs.OnDemandMinArtifactPutCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactMinPutCostOtelAttribute, s3Costs.AdjustedMinArtifactPutCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactAvgStorageCostOtelAttribute, s3Costs.OnDemandAvgArtifactStorageCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactAvgStorageCostOtelAttribute, s3Costs.AdjustedAvgArtifactStorageCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactMinStorageCostOtelAttribute, s3Costs.OnDemandMinArtifactStorageCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactMinStorageCostOtelAttribute, s3Costs.AdjustedMinArtifactStorageCost),
+		attribute.Float64(evergreen.OnDemandS3ArtifactMaxStorageCostOtelAttribute, s3Costs.OnDemandMaxArtifactStorageCost),
+		attribute.Float64(evergreen.AdjustedS3ArtifactMaxStorageCostOtelAttribute, s3Costs.AdjustedMaxArtifactStorageCost),
+		attribute.Float64(evergreen.OnDemandS3LogAvgStorageCostOtelAttribute, s3Costs.OnDemandAvgLogStorageCost),
+		attribute.Float64(evergreen.AdjustedS3LogAvgStorageCostOtelAttribute, s3Costs.AdjustedAvgLogStorageCost),
+		attribute.Float64(evergreen.OnDemandS3LogMinStorageCostOtelAttribute, s3Costs.OnDemandMinLogStorageCost),
+		attribute.Float64(evergreen.AdjustedS3LogMinStorageCostOtelAttribute, s3Costs.AdjustedMinLogStorageCost),
+		attribute.Float64(evergreen.OnDemandS3LogMaxStorageCostOtelAttribute, s3Costs.OnDemandMaxLogStorageCost),
+		attribute.Float64(evergreen.AdjustedS3LogMaxStorageCostOtelAttribute, s3Costs.AdjustedMaxLogStorageCost),
 	}
 
 	span.SetAttributes(s3Attrs...)
