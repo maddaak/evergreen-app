@@ -273,18 +273,13 @@ func extractPRNumberFromHeadRef(headRef string) string {
 	return parts[0]
 }
 
-// PRNumber parses the GitHub PR number from HeadBranch.
-// HeadBranch format: gh-readonly-queue/main/pr-123-abc123
-func (g *GithubMergeGroup) PRNumber() (int, error) {
-	prStr := extractPRNumberFromHeadRef(g.HeadBranch)
-	if prStr == "" {
-		return 0, errors.Errorf("HeadBranch '%s' does not match expected format", g.HeadBranch)
-	}
-	prNum, err := strconv.Atoi(prStr)
+// GetPullRequest fetches the GitHub PR associated with this merge group.
+func (g *GithubMergeGroup) GetPullRequest(ctx context.Context) (*github.PullRequest, error) {
+	prNum, err := strconv.Atoi(extractPRNumberFromHeadRef(g.HeadBranch))
 	if err != nil {
-		return 0, errors.Wrapf(err, "converting PR number from HeadBranch '%s'", g.HeadBranch)
+		return nil, errors.Wrapf(err, "parsing PR number from HeadBranch '%s'", g.HeadBranch)
 	}
-	return prNum, nil
+	return GetGithubPullRequest(ctx, g.Org, g.Repo, prNum)
 }
 
 // BuildGithubHeadPRURL constructs the GitHub PR URL for the HEAD PR from a merge queue head ref.

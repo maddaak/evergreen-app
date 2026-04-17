@@ -597,18 +597,7 @@ func (gh *githubHookApi) handleMergeGroupDestroyed(ctx context.Context, event *g
 
 	model.EmitMergeQueueDestroyedSpans(ctx, updatedPatchIDs, org, repo, headSHA, event.GetMergeGroup().GetHeadRef(), reason)
 
-	for _, patchID := range updatedPatchIDs {
-		j := units.NewMergeQueueCompletionMetricsWebhookJob(patchID)
-		if err := gh.queue.Put(ctx, j); err != nil {
-			grip.Error(ctx, message.WrapError(err, message.Fields{
-				"source":   "GitHub hook",
-				"msg_id":   gh.msgID,
-				"event":    gh.eventType,
-				"patch_id": patchID,
-				"message":  "error enqueuing merge queue completion metrics job",
-			}))
-		}
-	}
+	model.EmitMergeQueueCompletionMetricsFromWebhook(ctx, updatedPatchIDs)
 
 	logFields := message.Fields{
 		"source":   "GitHub hook",

@@ -1940,6 +1940,37 @@ func EmitMergeQueueDestroyedSpans(ctx context.Context, updatedPatchIDs []string,
 	}
 }
 
+// EmitMergeQueueCompletionMetricsFromWebhook emits the patch_completed span for each patch in
+// updatedPatchIDs using the GitHub webhook's RemovedFromQueueAt as the end time. Errors are
+// logged internally and never returned, so they cannot affect the GitHub webhook response.
+func EmitMergeQueueCompletionMetricsFromWebhook(ctx context.Context, updatedPatchIDs []string) {
+	for _, patchID := range updatedPatchIDs {
+		p, err := patch.FindOneId(ctx, patchID)
+		if err != nil || p == nil {
+			continue
+		}
+		if p.MergeQueueMetricsEmitStatus != "" {
+			continue
+		}
+		v, err := VersionFindOneId(ctx, p.Version)
+		if err != nil || v == nil {
+			continue
+		}
+		status := patch.MergeQueueMetricsEmitStatusSuccess
+		if err := EmitMergeQueueCompletionMetrics(ctx, p, v, p.Status, p.GithubMergeData.RemovedFromQueueAt, patch.MergeQueueEndTimeSourceGitHubWebhookDestroyed); err != nil {
+			grip.Debug(ctx, message.WrapError(err, message.Fields{
+				"message":  "error emitting merge queue completion metrics from webhook",
+				"patch_id": patchID,
+			}))
+			status = patch.MergeQueueMetricsEmitStatusFailed
+		}
+		grip.Debug(ctx, message.WrapError(patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, status), message.Fields{
+			"message":  "error marking merge queue metrics emit status",
+			"patch_id": patchID,
+		}))
+	}
+}
+
 // UpdateVersionAndPatchStatusForBuilds updates the status of all versions,
 // patches and builds associated with the given input list of build IDs.
 func UpdateVersionAndPatchStatusForBuilds(ctx context.Context, buildIds []string) error {

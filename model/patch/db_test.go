@@ -788,27 +788,26 @@ func TestMarkMergeQueuePatchesRemovedFromQueue(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestSetMergeQueueMetricsEmittedPersistsFlag(t *testing.T) {
-	require.NoError(t, db.ClearCollections(Collection))
+func TestSetMergeQueueMetricsEmitStatusPersistsStatus(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
 
 	p := Patch{Id: bson.NewObjectId()}
 	require.NoError(t, db.Insert(t.Context(), Collection, p))
 
-	require.NoError(t, SetMergeQueueMetricsEmitted(t.Context(), p.Id))
+	require.NoError(t, SetMergeQueueMetricsEmitStatus(t.Context(), p.Id, MergeQueueMetricsEmitStatusSuccess))
 
 	updated, err := FindOneId(t.Context(), p.Id.Hex())
 	require.NoError(t, err)
 	require.NotNil(t, updated)
-	assert.True(t, updated.MergeQueueMetricsEmitted)
+	assert.Equal(t, MergeQueueMetricsEmitStatusSuccess, updated.MergeQueueMetricsEmitStatus)
 }
 
 func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches(t *testing.T) {
-	require.NoError(t, db.ClearCollections(Collection))
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
 
 	projectID := "my-project"
 	now := time.Now()
 
-	// Should be returned: finalized, no webhook, not emitted.
 	eligible := Patch{
 		Id:         bson.NewObjectId(),
 		Project:    projectID,
@@ -816,7 +815,6 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Status:     evergreen.VersionSucceeded,
 		CreateTime: now,
 	}
-	// Should be excluded: still running.
 	stillRunning := Patch{
 		Id:         bson.NewObjectId(),
 		Project:    projectID,
@@ -824,7 +822,6 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Status:     evergreen.VersionStarted,
 		CreateTime: now,
 	}
-	// Should be excluded: webhook already received.
 	webhookReceived := Patch{
 		Id:         bson.NewObjectId(),
 		Project:    projectID,
@@ -835,14 +832,13 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 			RemovedFromQueueAt: now.Add(-5 * time.Minute),
 		},
 	}
-	// Should be excluded: metrics already emitted.
 	alreadyEmitted := Patch{
-		Id:                       bson.NewObjectId(),
-		Project:                  projectID,
-		Alias:                    evergreen.CommitQueueAlias,
-		Status:                   evergreen.VersionSucceeded,
-		CreateTime:               now,
-		MergeQueueMetricsEmitted: true,
+		Id:                          bson.NewObjectId(),
+		Project:                     projectID,
+		Alias:                       evergreen.CommitQueueAlias,
+		Status:                      evergreen.VersionSucceeded,
+		CreateTime:                  now,
+		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusSuccess,
 	}
 	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted))
 

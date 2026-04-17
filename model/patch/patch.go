@@ -122,8 +122,8 @@ type Patch struct {
 	// when the manifest is not found.
 	// Not stored in the database since it is only needed during patch creation.
 	ReferenceManifestID string `bson:"-"`
-	// MergeQueueMetricsEmitted indicates whether the cron job has emitted the patch_completed span.
-	MergeQueueMetricsEmitted bool `bson:"merge_queue_metrics_emitted,omitempty"`
+	// MergeQueueMetricsEmitStatus tracks whether the patch_completed span was successfully emitted.
+	MergeQueueMetricsEmitStatus string `bson:"merge_queue_metrics_emit_status,omitempty"`
 }
 
 func (p *Patch) MarshalBSON() ([]byte, error)  { return mgobson.Marshal(p) }

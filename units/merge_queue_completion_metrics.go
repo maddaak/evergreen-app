@@ -8,8 +8,8 @@ import (
 	"github.com/evergreen-ci/evergreen"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/patch"
-	"github.com/evergreen-ci/evergreen/thirdparty"
 	"github.com/evergreen-ci/utility"
+	"github.com/google/go-github/v70/github"
 	"github.com/mongodb/amboy"
 	"github.com/mongodb/amboy/job"
 	"github.com/mongodb/amboy/registry"
@@ -55,7 +55,7 @@ func (j *mergeQueueCompletionMetricsFallbackJob) Run(ctx context.Context) {
 
 	projectRefs, err := model.FindProjectRefsWithMergeQueueEnabled(ctx)
 	if err != nil {
-		grip.Error(ctx, message.WrapError(err, message.Fields{
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
 			"message": "error finding projects with merge queue enabled",
 			"job":     j.ID(),
 		}))
@@ -66,7 +66,7 @@ func (j *mergeQueueCompletionMetricsFallbackJob) Run(ctx context.Context) {
 	for _, projectRef := range projectRefs {
 		patches, err := patch.FindMergeQueuePatchesMissingCompletionMetrics(ctx, projectRef.Id)
 		if err != nil {
-			grip.Error(ctx, message.WrapError(err, message.Fields{
+			grip.Debug(ctx, message.WrapError(err, message.Fields{
 				"message":    "error querying merge queue patches missing completion metrics",
 				"project_id": projectRef.Id,
 				"job":        j.ID(),
@@ -82,96 +82,74 @@ func (j *mergeQueueCompletionMetricsFallbackJob) Run(ctx context.Context) {
 
 func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(ctx context.Context, p *patch.Patch) {
 	_, collectiveFinishTime, err := p.GetCollectiveTimes(ctx)
+	if err != nil || collectiveFinishTime.IsZero() || time.Since(collectiveFinishTime) < 5*time.Minute {
+		return
+	}
+
+	pr, err := p.GithubMergeData.GetPullRequest(ctx)
 	if err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not get collective times for merge queue patch",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
 		return
 	}
 
-	// Wait at least 5 minutes after Evergreen finishes before polling GitHub,
-	// to give the webhook a chance to arrive first.
-	if collectiveFinishTime.IsZero() || time.Since(collectiveFinishTime) < 5*time.Minute {
+	endTime, endTimeSource, ok := mergeQueueEndTimeFromPR(pr, collectiveFinishTime)
+	if !ok {
 		return
 	}
 
-	prNum, err := p.GithubMergeData.PRNumber()
-	if err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not parse PR number for merge queue patch",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
-		return
-	}
-
-	pr, err := thirdparty.GetGithubPullRequest(ctx, p.GithubMergeData.Org, p.GithubMergeData.Repo, prNum)
-	if err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not fetch GitHub PR for merge queue patch",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
-		return
-	}
-
-	// Only emit if GitHub confirms the PR was merged — this is the source of truth for the end time.
-	mergedAt := pr.GetMergedAt()
-	if !pr.GetMerged() || mergedAt.IsZero() {
-		return
-	}
-
-	// Re-fetch to check whether a webhook job emitted between our query and now.
+	// Re-fetch to guard against the webhook handler emitting between our query and now.
 	latest, err := patch.FindOneId(ctx, p.Id.Hex())
-	if err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not re-fetch merge queue patch before emitting fallback metrics",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
-		return
-	}
-	if latest == nil || latest.MergeQueueMetricsEmitted {
+	if err != nil || latest == nil || latest.MergeQueueMetricsEmitStatus != "" {
 		return
 	}
 
 	v, err := model.VersionFindOneId(ctx, p.Version)
-	if err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not find version for merge queue patch fallback completion metrics",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
-		return
-	}
-	if v == nil {
-		grip.Info(ctx, message.Fields{
-			"message":  "no version found for merge queue patch fallback completion metrics",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		})
+	if err != nil || v == nil {
 		return
 	}
 
-	endTime := mergedAt.Time
-	if err := model.EmitMergeQueueCompletionMetrics(ctx, p, v, p.Status, endTime, patch.MergeQueueEndTimeSourceGitHubPRAPI); err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not emit fallback completion metrics for merge queue patch",
+	status := patch.MergeQueueMetricsEmitStatusSuccess
+	if err := model.EmitMergeQueueCompletionMetrics(ctx, p, v, p.Status, endTime, endTimeSource); err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not emit completion metrics for merge queue patch",
 			"patch_id": p.Id.Hex(),
 			"job":      j.ID(),
 		}))
-		return
+		status = patch.MergeQueueMetricsEmitStatusFailed
+	}
+	grip.Debug(ctx, message.WrapError(patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, status), message.Fields{
+		"message":  "could not mark merge queue metrics emit status",
+		"patch_id": p.Id.Hex(),
+		"job":      j.ID(),
+	}))
+}
+
+// mergeQueueEndTimeFromPR determines the end time and source for a merge queue patch based on the
+// current GitHub PR state. Returns ok=false if the PR is still open and not in draft, meaning we
+// should skip and retry on the next cron run.
+func mergeQueueEndTimeFromPR(pr *github.PullRequest, collectiveFinishTime time.Time) (endTime time.Time, endTimeSource string, ok bool) {
+	if pr.GetMerged() {
+		return pr.GetMergedAt().Time, patch.MergeQueueEndTimeSourceGitHubPRAPI, true
 	}
 
-	if err := patch.SetMergeQueueMetricsEmitted(ctx, p.Id); err != nil {
-		grip.Info(ctx, message.WrapError(err, message.Fields{
-			"message":  "could not mark merge queue metrics emitted for patch via fallback",
-			"patch_id": p.Id.Hex(),
-			"job":      j.ID(),
-		}))
+	if pr.GetState() == "closed" {
+		// PR was closed without merging. Use the later of the GitHub close time and the
+		// Evergreen collective finish time, since a user may have removed the PR from the
+		// queue after Evergreen tasks completed.
+		closedAt := pr.GetClosedAt().Time
+		if !closedAt.IsZero() && closedAt.After(collectiveFinishTime) {
+			return closedAt, patch.MergeQueueEndTimeSourceGitHubPRClosed, true
+		}
+		return collectiveFinishTime, patch.MergeQueueEndTimeSourceCollectiveFinish, true
 	}
+
+	if pr.GetDraft() {
+		// PR was converted to draft, removing it from the merge queue. No GitHub close time
+		// is available, so fall back to Evergreen's collective finish time.
+		return collectiveFinishTime, patch.MergeQueueEndTimeSourceCollectiveFinish, true
+	}
+
+	// PR is still open and active — may still be in the queue. Skip and retry next run.
+	return time.Time{}, "", false
 }
 
 // PopulateMergeQueueCompletionMetricsFallbackJobs enqueues a job to emit completion metrics for
