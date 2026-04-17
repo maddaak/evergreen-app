@@ -83,8 +83,11 @@ var (
 type Task struct {
 	Id     string `bson:"_id" json:"id"`
 	Secret string `bson:"secret" json:"secret"`
-	// time information for task
-	// CreateTime - the creation time for the task, derived from the commit time or the patch creation time.
+	// Time fields (see also model.Version for the same CreateTime vs IngestTime distinction):
+	// CreateTime - logical time for this task, aligned with the parent version's semantics: derived from
+	// commit/revision metadata or patch timing (same idea as the version's CreateTime). It is not the
+	// wall-clock time the task row was written; use IngestTime for that.
+	// IngestTime - wall-clock time this task document was first inserted in Evergreen (set in createOneTask).
 	// DispatchTime - the time the task runner starts up the agent on the host.
 	// ScheduledTime - the time the task is scheduled.
 	// StartTime - the time the agent starts the task on the host after spinning it up.
@@ -4339,10 +4342,14 @@ func (t *Task) SaveS3Usage(ctx context.Context, lookup bucketExpirationLookup, l
 
 	setFields := bson.M{
 		S3UsageKey: t.S3Usage,
-		bsonutil.GetDottedKeyName(TaskCostKey, cost.S3ArtifactPutCostKey):     t.TaskCost.S3ArtifactPutCost,
-		bsonutil.GetDottedKeyName(TaskCostKey, cost.S3LogPutCostKey):          t.TaskCost.S3LogPutCost,
-		bsonutil.GetDottedKeyName(TaskCostKey, cost.S3ArtifactStorageCostKey): t.TaskCost.S3ArtifactStorageCost,
-		bsonutil.GetDottedKeyName(TaskCostKey, cost.S3LogStorageCostKey):      t.TaskCost.S3LogStorageCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.OnDemandS3ArtifactPutCostKey):     t.TaskCost.OnDemandS3ArtifactPutCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.AdjustedS3ArtifactPutCostKey):     t.TaskCost.AdjustedS3ArtifactPutCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.OnDemandS3LogPutCostKey):          t.TaskCost.OnDemandS3LogPutCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.AdjustedS3LogPutCostKey):          t.TaskCost.AdjustedS3LogPutCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.OnDemandS3ArtifactStorageCostKey): t.TaskCost.OnDemandS3ArtifactStorageCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.AdjustedS3ArtifactStorageCostKey): t.TaskCost.AdjustedS3ArtifactStorageCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.OnDemandS3LogStorageCostKey):      t.TaskCost.OnDemandS3LogStorageCost,
+		bsonutil.GetDottedKeyName(TaskCostKey, cost.AdjustedS3LogStorageCostKey):      t.TaskCost.AdjustedS3LogStorageCost,
 	}
 
 	return UpdateOne(ctx, bson.M{"_id": t.Id}, bson.M{"$set": setFields})
@@ -4361,7 +4368,9 @@ func (t *Task) setS3LogStorageCosts(ctx context.Context, logBucketName string, l
 		if !found {
 			days = costConfig.S3Cost.Storage.DefaultMaxArtifactExpirationDays
 		}
-		t.TaskCost.S3LogStorageCost += s3usage.CalculateS3StorageCostWithConfig(ctx, lm.Bytes, days, costConfig)
+		onDemandCost, adjustedCost := s3usage.CalculateS3StorageCostWithConfig(ctx, lm.Bytes, days, costConfig)
+		t.TaskCost.OnDemandS3LogStorageCost += onDemandCost
+		t.TaskCost.AdjustedS3LogStorageCost += adjustedCost
 	}
 }
 
@@ -4378,10 +4387,10 @@ func resolveArtifactExpirationDays(ctx context.Context, bucket, fileKey string, 
 // calculateS3PutCosts calculates S3 PUT costs for both artifact uploads and log uploads.
 func (t *Task) calculateS3PutCosts(costConfig *evergreen.CostConfig) {
 	if t.S3Usage.Artifacts.PutRequests > 0 {
-		t.TaskCost.S3ArtifactPutCost = s3usage.CalculateS3PutCostWithConfig(t.S3Usage.Artifacts.PutRequests, costConfig)
+		t.TaskCost.OnDemandS3ArtifactPutCost, t.TaskCost.AdjustedS3ArtifactPutCost = s3usage.CalculateS3PutCostWithConfig(t.S3Usage.Artifacts.PutRequests, costConfig)
 	}
 	if t.S3Usage.Logs.PutRequests > 0 {
-		t.TaskCost.S3LogPutCost = s3usage.CalculateS3PutCostWithConfig(t.S3Usage.Logs.PutRequests, costConfig)
+		t.TaskCost.OnDemandS3LogPutCost, t.TaskCost.AdjustedS3LogPutCost = s3usage.CalculateS3PutCostWithConfig(t.S3Usage.Logs.PutRequests, costConfig)
 	}
 }
 
@@ -4400,7 +4409,9 @@ func (t *Task) setS3ArtifactStorageCosts(ctx context.Context, lookup bucketExpir
 					"task_id": t.Id,
 				})
 			}
-			t.TaskCost.S3ArtifactStorageCost += s3usage.CalculateS3StorageCostWithConfig(ctx, fileEntry.Bytes, days, costConfig)
+			onDemandCost, adjustedCost := s3usage.CalculateS3StorageCostWithConfig(ctx, fileEntry.Bytes, days, costConfig)
+			t.TaskCost.OnDemandS3ArtifactStorageCost += onDemandCost
+			t.TaskCost.AdjustedS3ArtifactStorageCost += adjustedCost
 		}
 	}
 }
