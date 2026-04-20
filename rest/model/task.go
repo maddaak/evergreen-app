@@ -407,15 +407,13 @@ func (at *APITask) buildTask(t *task.Task) error {
 	}
 
 	if !t.TaskCost.IsZero() {
-		taskCost := t.TaskCost
-		taskCost.Total = taskCost.TotalAdjusted()
+		taskCost := t.TaskCost.Round()
 		at.TaskCost = &taskCost
 	}
 
 	// Populate expected cost fields if they exist (not zero)
 	if !t.PredictedTaskCost.IsZero() {
-		predictedCost := t.PredictedTaskCost
-		predictedCost.Total = predictedCost.TotalAdjusted()
+		predictedCost := t.PredictedTaskCost.Round()
 		at.PredictedTaskCost = &predictedCost
 	}
 
