@@ -22,44 +22,26 @@ func TestCostTotalAdjusted(t *testing.T) {
 	assert.InDelta(t, 8.0, c.TotalAdjusted(), 1e-9)
 }
 
-func TestRoundToSignificantFigures(t *testing.T) {
+func TestRoundCost(t *testing.T) {
 	t.Run("Zero", func(t *testing.T) {
-		assert.Equal(t, 0.0, roundToSignificantFigures(0, 4))
+		assert.Equal(t, 0.0, RoundCost(0))
 	})
 	t.Run("NoisySmallValue", func(t *testing.T) {
 		// Floating-point noise after the 4th significant digit should be removed.
-		assert.Equal(t, 0.0000003675, roundToSignificantFigures(0.00000036750000000000004, 4))
+		assert.Equal(t, 0.0000003675, RoundCost(0.00000036750000000000004))
 	})
 	t.Run("LargerValue", func(t *testing.T) {
-		assert.Equal(t, 0.008724, roundToSignificantFigures(0.008724004762715199, 4))
+		assert.Equal(t, 0.008724, RoundCost(0.008724004762715199))
 	})
 	t.Run("RoundsUp", func(t *testing.T) {
-		assert.Equal(t, 0.005820, roundToSignificantFigures(0.005819905908980206, 4))
+		assert.Equal(t, 0.005820, RoundCost(0.005819905908980206))
 	})
-	t.Run("WholeNumber", func(t *testing.T) {
-		assert.Equal(t, 1.235, roundToSignificantFigures(1.2345678, 4))
+	t.Run("ValueAboveOneCent", func(t *testing.T) {
+		// Values >= 0.01 are rounded to 2 decimal places.
+		assert.Equal(t, 1.23, RoundCost(1.2345678))
 	})
 }
 
-func TestCostRound(t *testing.T) {
-	c := Cost{
-		OnDemandEC2Cost:           0.008724004762715199,
-		AdjustedEC2Cost:           0.005819105908980206,
-		AdjustedEBSThroughputCost: 0.00019962631363096064,
-		AdjustedEBSStorageCost:    0.000009582063054286111,
-		AdjustedS3ArtifactPutCost: 0.00000036750000000000004,
-		AdjustedS3LogPutCost:      0.000044100000000000001,
-	}
-	rounded := c.Round()
-	assert.Equal(t, 0.008724, rounded.OnDemandEC2Cost)
-	assert.Equal(t, 0.005819, rounded.AdjustedEC2Cost)
-	assert.Equal(t, 0.0001996, rounded.AdjustedEBSThroughputCost)
-	assert.Equal(t, 0.000009582, rounded.AdjustedEBSStorageCost)
-	assert.Equal(t, 0.0000003675, rounded.AdjustedS3ArtifactPutCost)
-	assert.Equal(t, 0.00004410, rounded.AdjustedS3LogPutCost)
-	// Total should be the rounded sum of all adjusted fields.
-	assert.Equal(t, roundToSignificantFigures(c.TotalAdjusted(), 4), rounded.Total)
-}
 
 func TestCostIsZero(t *testing.T) {
 	t.Run("ZeroValues", func(t *testing.T) {

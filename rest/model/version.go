@@ -151,11 +151,13 @@ func (apiVersion *APIVersion) BuildFromService(ctx context.Context, v model.Vers
 	}
 
 	if !v.Cost.IsZero() {
-		versionCost := v.Cost.Round()
+		versionCost := v.Cost
+		versionCost.Total = versionCost.TotalAdjusted()
 		apiVersion.Cost = &versionCost
 	}
 	if !v.PredictedCost.IsZero() {
-		predictedCost := v.PredictedCost.Round()
+		predictedCost := v.PredictedCost
+		predictedCost.Total = predictedCost.TotalAdjusted()
 		apiVersion.PredictedCost = &predictedCost
 	}
 	if !v.S3Usage.IsZero() {

@@ -69,39 +69,19 @@ func (c Cost) TotalAdjusted() float64 {
 		c.AdjustedS3LogStorageCost
 }
 
-// roundToSignificantFigures rounds v to the given number of significant figures.
-// For example, roundToSignificantFigures(0.00000036750000000000004, 4) returns 0.0000003675.
-func roundToSignificantFigures(v float64, sigFigs int) float64 {
+// RoundCost removes floating-point noise from a cost value. Values >= 0.01
+// are rounded to 2 decimal places; values < 0.01 are rounded to 4 significant
+// figures to preserve meaningful precision for very small costs.
+func RoundCost(v float64) float64 {
 	if v == 0 {
 		return 0
 	}
-	magnitude := math.Floor(math.Log10(math.Abs(v)))
-	factor := math.Pow(10, float64(sigFigs-1)-magnitude)
-	return math.Round(v*factor) / factor
-}
-
-// Round returns a new Cost with all fields rounded to 4 significant figures,
-// removing floating-point noise from cost calculations. Total is computed
-// from TotalAdjusted() and also rounded.
-func (c Cost) Round() Cost {
-	const sigFigs = 4
-	return Cost{
-		Total:                         roundToSignificantFigures(c.TotalAdjusted(), sigFigs),
-		OnDemandEC2Cost:               roundToSignificantFigures(c.OnDemandEC2Cost, sigFigs),
-		AdjustedEC2Cost:               roundToSignificantFigures(c.AdjustedEC2Cost, sigFigs),
-		OnDemandEBSThroughputCost:     roundToSignificantFigures(c.OnDemandEBSThroughputCost, sigFigs),
-		AdjustedEBSThroughputCost:     roundToSignificantFigures(c.AdjustedEBSThroughputCost, sigFigs),
-		OnDemandEBSStorageCost:        roundToSignificantFigures(c.OnDemandEBSStorageCost, sigFigs),
-		AdjustedEBSStorageCost:        roundToSignificantFigures(c.AdjustedEBSStorageCost, sigFigs),
-		OnDemandS3ArtifactPutCost:     roundToSignificantFigures(c.OnDemandS3ArtifactPutCost, sigFigs),
-		AdjustedS3ArtifactPutCost:     roundToSignificantFigures(c.AdjustedS3ArtifactPutCost, sigFigs),
-		OnDemandS3LogPutCost:          roundToSignificantFigures(c.OnDemandS3LogPutCost, sigFigs),
-		AdjustedS3LogPutCost:          roundToSignificantFigures(c.AdjustedS3LogPutCost, sigFigs),
-		OnDemandS3ArtifactStorageCost: roundToSignificantFigures(c.OnDemandS3ArtifactStorageCost, sigFigs),
-		AdjustedS3ArtifactStorageCost: roundToSignificantFigures(c.AdjustedS3ArtifactStorageCost, sigFigs),
-		OnDemandS3LogStorageCost:      roundToSignificantFigures(c.OnDemandS3LogStorageCost, sigFigs),
-		AdjustedS3LogStorageCost:      roundToSignificantFigures(c.AdjustedS3LogStorageCost, sigFigs),
+	if v >= 0.01 {
+		return math.Round(v*100) / 100
 	}
+	magnitude := math.Floor(math.Log10(math.Abs(v)))
+	factor := math.Pow(10, 3-magnitude) // 4 significant figures
+	return math.Round(v*factor) / factor
 }
 
 // IsZero returns true if all cost components are zero.
