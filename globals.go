@@ -557,6 +557,20 @@ const (
 	VersionPredictedOnDemandCostOtelAttribute = "evergreen.version.predicted_on_demand_cost"
 	VersionPredictedAdjustedCostOtelAttribute = "evergreen.version.predicted_adjusted_cost"
 
+	VersionOnDemandS3ArtifactPutCostOtelAttribute     = "evergreen.version.s3_cost.on_demand_artifact_put_cost"
+	VersionAdjustedS3ArtifactPutCostOtelAttribute     = "evergreen.version.s3_cost.adjusted_artifact_put_cost"
+	VersionOnDemandS3ArtifactStorageCostOtelAttribute = "evergreen.version.s3_cost.on_demand_artifact_storage_cost"
+	VersionAdjustedS3ArtifactStorageCostOtelAttribute = "evergreen.version.s3_cost.adjusted_artifact_storage_cost"
+	VersionOnDemandS3LogPutCostOtelAttribute          = "evergreen.version.s3_cost.on_demand_log_put_cost"
+	VersionAdjustedS3LogPutCostOtelAttribute          = "evergreen.version.s3_cost.adjusted_log_put_cost"
+	VersionOnDemandS3LogStorageCostOtelAttribute      = "evergreen.version.s3_cost.on_demand_log_storage_cost"
+	VersionAdjustedS3LogStorageCostOtelAttribute      = "evergreen.version.s3_cost.adjusted_log_storage_cost"
+	VersionS3ArtifactPutRequestsOtelAttribute         = "evergreen.version.s3_cost.artifact_put_requests"
+	VersionS3ArtifactUploadBytesOtelAttribute         = "evergreen.version.s3_cost.artifact_upload_bytes"
+	VersionS3ArtifactCountOtelAttribute               = "evergreen.version.s3_cost.artifact_count"
+	VersionS3LogPutRequestsOtelAttribute              = "evergreen.version.s3_cost.log_put_requests"
+	VersionS3LogUploadBytesOtelAttribute              = "evergreen.version.s3_cost.log_upload_bytes"
+
 	// patch otel attributes
 	PatchIsReconfiguredOtelAttribute = "evergreen.patch.is_reconfigured"
 
