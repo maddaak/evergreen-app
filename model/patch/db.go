@@ -554,8 +554,8 @@ func FindMergeQueuePatchesByProject(ctx context.Context, projectID string) ([]Pa
 	return Find(ctx, db.Query(query))
 }
 
-// FindMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that have not yet
-// received a GitHub removal webhook and have not emitted completion metrics.
+// FindMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that did not receive
+// a GitHub removal webhook and have not yet had completion metrics emitted.
 func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
 	timeThreshold := time.Now().Add(-24 * time.Hour)
 
@@ -714,10 +714,30 @@ func MarkMergeQueuePatchesRemovedFromQueue(ctx context.Context, org, repo, headS
 	return updatedPatchIDs, nil
 }
 
+// ClaimMergeQueueMetricsEmit atomically claims the right to emit the patch_completed span for a merge queue
+// patch, returning true if claimed and false if another process claimed it first. If emission fails after
+// a successful claim, callers must correct the status via SetMergeQueueMetricsEmitStatus.
+func ClaimMergeQueueMetricsEmit(ctx context.Context, patchID mgobson.ObjectId) (bool, error) {
+	info, err := UpdateAll(ctx,
+		bson.M{
+			IdKey: patchID,
+			MergeQueueMetricsEmitStatusKey: bson.M{"$nin": []string{
+				MergeQueueMetricsEmitStatusSuccess,
+				MergeQueueMetricsEmitStatusFailed,
+			}},
+		},
+		bson.D{{Key: "$set", Value: bson.D{{Key: MergeQueueMetricsEmitStatusKey, Value: MergeQueueMetricsEmitStatusSuccess}}}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return info.Updated > 0, nil
+}
+
 // SetMergeQueueMetricsEmitStatus records the emit status of the patch_completed span for a merge queue patch.
 func SetMergeQueueMetricsEmitStatus(ctx context.Context, patchID mgobson.ObjectId, status string) error {
 	return UpdateOne(ctx,
 		bson.M{IdKey: patchID},
-		bson.M{"$set": bson.M{MergeQueueMetricsEmitStatusKey: status}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: MergeQueueMetricsEmitStatusKey, Value: status}}}},
 	)
 }

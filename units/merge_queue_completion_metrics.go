@@ -29,9 +29,7 @@ type mergeQueueCompletionMetricsFallbackJob struct {
 	env      evergreen.Environment
 }
 
-// NewMergeQueueCompletionMetricsFallbackJob creates a job that polls the GitHub PR API for merge
-// queue patches that finished but never received a "destroyed" webhook, and emits the patch_completed
-// span when the PR is confirmed merged.
+// NewMergeQueueCompletionMetricsFallbackJob creates a job to emit completion metrics for merge queue patches that missed the GitHub destroyed webhook.
 func NewMergeQueueCompletionMetricsFallbackJob() amboy.Job {
 	j := &mergeQueueCompletionMetricsFallbackJob{
 		Base: job.Base{
@@ -88,6 +86,11 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 
 	pr, err := p.GithubMergeData.GetPullRequest(ctx)
 	if err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not get GitHub pull request for merge queue patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
 		return
 	}
 
@@ -96,31 +99,30 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 		return
 	}
 
-	// Re-fetch to guard against the webhook handler emitting between our query and now.
-	latest, err := patch.FindOneId(ctx, p.Id.Hex())
-	if err != nil || latest == nil || latest.MergeQueueMetricsEmitStatus != "" {
+	claimed, err := patch.ClaimMergeQueueMetricsEmit(ctx, p.Id)
+	if err != nil || !claimed {
+		return
+	}
+	// Re-fetch after claiming to use the most up-to-date patch data (p may be stale from the initial query).
+	p, err = patch.FindOneId(ctx, p.Id.Hex())
+	if err != nil || p == nil {
 		return
 	}
 
 	v, err := model.VersionFindOneId(ctx, p.Version)
 	if err != nil || v == nil {
+		_ = patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, patch.MergeQueueMetricsEmitStatusFailed)
 		return
 	}
 
-	status := patch.MergeQueueMetricsEmitStatusSuccess
 	if err := model.EmitMergeQueueCompletionMetrics(ctx, p, v, p.Status, endTime, endTimeSource); err != nil {
+		_ = patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, patch.MergeQueueMetricsEmitStatusFailed)
 		grip.Debug(ctx, message.WrapError(err, message.Fields{
 			"message":  "could not emit completion metrics for merge queue patch",
 			"patch_id": p.Id.Hex(),
 			"job":      j.ID(),
 		}))
-		status = patch.MergeQueueMetricsEmitStatusFailed
 	}
-	grip.Debug(ctx, message.WrapError(patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, status), message.Fields{
-		"message":  "could not mark merge queue metrics emit status",
-		"patch_id": p.Id.Hex(),
-		"job":      j.ID(),
-	}))
 }
 
 // mergeQueueEndTimeFromPR determines the end time and source for a merge queue patch based on the

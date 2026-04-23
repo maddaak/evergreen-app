@@ -802,6 +802,50 @@ func TestSetMergeQueueMetricsEmitStatusPersistsStatus(t *testing.T) {
 	assert.Equal(t, MergeQueueMetricsEmitStatusSuccess, updated.MergeQueueMetricsEmitStatus)
 }
 
+func TestClaimMergeQueueMetricsEmitSucceedsWhenStatusUnset(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
+
+	p := Patch{Id: bson.NewObjectId()}
+	require.NoError(t, db.Insert(t.Context(), Collection, p))
+
+	claimed, err := ClaimMergeQueueMetricsEmit(t.Context(), p.Id)
+	require.NoError(t, err)
+	assert.True(t, claimed)
+
+	updated, err := FindOneId(t.Context(), p.Id.Hex())
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, MergeQueueMetricsEmitStatusSuccess, updated.MergeQueueMetricsEmitStatus)
+}
+
+func TestClaimMergeQueueMetricsEmitFailsWhenAlreadySuccess(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
+
+	p := Patch{
+		Id:                          bson.NewObjectId(),
+		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusSuccess,
+	}
+	require.NoError(t, db.Insert(t.Context(), Collection, p))
+
+	claimed, err := ClaimMergeQueueMetricsEmit(t.Context(), p.Id)
+	require.NoError(t, err)
+	assert.False(t, claimed)
+}
+
+func TestClaimMergeQueueMetricsEmitFailsWhenAlreadyFailed(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
+
+	p := Patch{
+		Id:                          bson.NewObjectId(),
+		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusFailed,
+	}
+	require.NoError(t, db.Insert(t.Context(), Collection, p))
+
+	claimed, err := ClaimMergeQueueMetricsEmit(t.Context(), p.Id)
+	require.NoError(t, err)
+	assert.False(t, claimed)
+}
+
 func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
 

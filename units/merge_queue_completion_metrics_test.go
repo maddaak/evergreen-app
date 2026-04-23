@@ -57,6 +57,29 @@ func TestMergeQueueCompletionMetricsFallbackJobSkipsUnparsablePRNumber(t *testin
 	assert.Empty(t, updated.MergeQueueMetricsEmitStatus)
 }
 
+func TestMergeQueueCompletionMetricsFallbackJobPreservesSuccessStatusOnGetPullRequestFailure(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, db.ClearCollections(patch.Collection)) })
+
+	p := patch.Patch{
+		Id:                          mgobson.NewObjectId(),
+		Project:                     "my-project",
+		Alias:                       evergreen.CommitQueueAlias,
+		Status:                      evergreen.VersionSucceeded,
+		CreateTime:                  time.Now(),
+		FinishTime:                  time.Now().Add(-10 * time.Minute),
+		MergeQueueMetricsEmitStatus: patch.MergeQueueMetricsEmitStatusSuccess,
+	}
+	require.NoError(t, db.Insert(t.Context(), patch.Collection, p))
+
+	j := &mergeQueueCompletionMetricsFallbackJob{}
+	j.emitCompletionMetricsForPatch(t.Context(), &p)
+
+	updated, err := patch.FindOneId(t.Context(), p.Id.Hex())
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, patch.MergeQueueMetricsEmitStatusSuccess, updated.MergeQueueMetricsEmitStatus)
+}
+
 func TestMergeQueueEndTimeFromPRMergedUsesMergedAt(t *testing.T) {
 	mergedAt := time.Now().Add(-10 * time.Minute)
 	collectiveFinishTime := time.Now().Add(-15 * time.Minute)
