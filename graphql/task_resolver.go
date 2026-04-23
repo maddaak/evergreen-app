@@ -902,5 +902,3 @@ func (r *Resolver) Task() TaskResolver { return &taskResolver{r} }
 
 type costResolver struct{ *Resolver }
 type taskResolver struct{ *Resolver }
-
-// !!! WARNING !!!
