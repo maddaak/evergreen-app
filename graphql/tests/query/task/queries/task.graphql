@@ -9,6 +9,13 @@
     taskCost {
       onDemandEC2Cost
       adjustedEC2Cost
+      adjustedEBSThroughputCost
+      adjustedEBSStorageCost
+      adjustedS3ArtifactPutCost
+      adjustedS3LogPutCost
+      adjustedS3ArtifactStorageCost
+      adjustedS3LogStorageCost
+      total
     }
   }
 }
