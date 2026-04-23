@@ -23,25 +23,24 @@ func TestCostTotalAdjusted(t *testing.T) {
 }
 
 func TestRoundCost(t *testing.T) {
-	t.Run("Zero", func(t *testing.T) {
+	t.Run("ZeroInputReturnsZero", func(t *testing.T) {
 		assert.Equal(t, 0.0, RoundCost(0))
 	})
-	t.Run("NoisySmallValue", func(t *testing.T) {
+	t.Run("SmallValueWithFloatNoiseRoundsToFourSigFigs", func(t *testing.T) {
 		// Floating-point noise after the 4th significant digit should be removed.
 		assert.Equal(t, 0.0000003675, RoundCost(0.00000036750000000000004))
 	})
-	t.Run("LargerValue", func(t *testing.T) {
+	t.Run("ValueBelowOneCentRoundsToFourSigFigs", func(t *testing.T) {
 		assert.Equal(t, 0.008724, RoundCost(0.008724004762715199))
 	})
-	t.Run("RoundsUp", func(t *testing.T) {
+	t.Run("SmallValueRoundsUpToFourSigFigs", func(t *testing.T) {
 		assert.Equal(t, 0.005820, RoundCost(0.005819905908980206))
 	})
-	t.Run("ValueAboveOneCent", func(t *testing.T) {
+	t.Run("ValueAboveOneCentRoundsToTwoDecimalPlaces", func(t *testing.T) {
 		// Values >= 0.01 are rounded to 2 decimal places.
 		assert.Equal(t, 1.23, RoundCost(1.2345678))
 	})
 }
-
 
 func TestCostIsZero(t *testing.T) {
 	t.Run("ZeroValues", func(t *testing.T) {
