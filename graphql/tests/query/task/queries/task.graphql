@@ -7,8 +7,15 @@
     revision
     testSelectionEnabled
     taskCost {
-      onDemandEC2Cost
+      adjustedEBSStorageCost
+      adjustedEBSThroughputCost
       adjustedEC2Cost
+      adjustedS3ArtifactPutCost
+      adjustedS3ArtifactStorageCost
+      adjustedS3LogPutCost
+      adjustedS3LogStorageCost
+      onDemandEC2Cost
+      total
     }
   }
 }
