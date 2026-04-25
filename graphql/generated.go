@@ -414,7 +414,6 @@ type ComplexityRoot struct {
 		AdjustedS3LogPutCost          func(childComplexity int) int
 		AdjustedS3LogStorageCost      func(childComplexity int) int
 		ChildPatchesTotalCost         func(childComplexity int) int
-		OnDemandEC2Cost               func(childComplexity int) int
 		Total                         func(childComplexity int) int
 	}
 
@@ -4173,12 +4172,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Cost.ChildPatchesTotalCost(childComplexity), true
-	case "Cost.onDemandEC2Cost":
-		if e.complexity.Cost.OnDemandEC2Cost == nil {
-			break
-		}
-
-		return e.complexity.Cost.OnDemandEC2Cost(childComplexity), true
 	case "Cost.total":
 		if e.complexity.Cost.Total == nil {
 			break
@@ -24130,35 +24123,6 @@ func (ec *executionContext) _Cost_childPatchesTotalCost(ctx context.Context, fie
 }
 
 func (ec *executionContext) fieldContext_Cost_childPatchesTotalCost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Cost",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Float does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Cost_onDemandEC2Cost(ctx context.Context, field graphql.CollectedField, obj *cost.Cost) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_Cost_onDemandEC2Cost,
-		func(ctx context.Context) (any, error) {
-			return obj.OnDemandEC2Cost, nil
-		},
-		nil,
-		ec.marshalOFloat2float64,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_Cost_onDemandEC2Cost(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Cost",
 		Field:      field,
@@ -45372,8 +45336,6 @@ func (ec *executionContext) fieldContext_Patch_cost(_ context.Context, field gra
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -45423,8 +45385,6 @@ func (ec *executionContext) fieldContext_Patch_predictedCost(_ context.Context, 
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -65790,8 +65750,6 @@ func (ec *executionContext) fieldContext_Task_taskCost(_ context.Context, field 
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -65841,8 +65799,6 @@ func (ec *executionContext) fieldContext_Task_predictedTaskCost(_ context.Contex
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -73592,8 +73548,6 @@ func (ec *executionContext) fieldContext_Version_cost(_ context.Context, field g
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -74171,8 +74125,6 @@ func (ec *executionContext) fieldContext_Version_predictedCost(_ context.Context
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -75141,8 +75093,6 @@ func (ec *executionContext) fieldContext_VersionLite_cost(_ context.Context, fie
 				return ec.fieldContext_Cost_total(ctx, field)
 			case "childPatchesTotalCost":
 				return ec.fieldContext_Cost_childPatchesTotalCost(ctx, field)
-			case "onDemandEC2Cost":
-				return ec.fieldContext_Cost_onDemandEC2Cost(ctx, field)
 			case "adjustedEC2Cost":
 				return ec.fieldContext_Cost_adjustedEC2Cost(ctx, field)
 			case "adjustedEBSStorageCost":
@@ -91920,8 +91870,6 @@ func (ec *executionContext) _Cost(ctx context.Context, sel ast.SelectionSet, obj
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "childPatchesTotalCost":
 			out.Values[i] = ec._Cost_childPatchesTotalCost(ctx, field, obj)
-		case "onDemandEC2Cost":
-			out.Values[i] = ec._Cost_onDemandEC2Cost(ctx, field, obj)
 		case "adjustedEC2Cost":
 			out.Values[i] = ec._Cost_adjustedEC2Cost(ctx, field, obj)
 		case "adjustedEBSStorageCost":

@@ -12,7 +12,6 @@
       "branch": "spruce",
       "test_selection_enabled": true,
       "cost": {
-        "on_demand_ec2_cost": 1.25,
         "adjusted_ec2_cost": 0.89,
         "adjusted_ebs_throughput_cost": 0.05,
         "adjusted_ebs_storage_cost": 0.03,

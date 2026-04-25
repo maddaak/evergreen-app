@@ -749,7 +749,6 @@ func (r *taskResolver) TaskCost(ctx context.Context, obj *restModel.APITask) (*c
 		return nil, nil
 	}
 	rounded := cost.Cost{
-		OnDemandEC2Cost:               obj.TaskCost.OnDemandEC2Cost,
 		AdjustedEC2Cost:               cost.RoundCost(obj.TaskCost.AdjustedEC2Cost),
 		AdjustedEBSThroughputCost:     cost.RoundCost(obj.TaskCost.AdjustedEBSThroughputCost),
 		AdjustedEBSStorageCost:        cost.RoundCost(obj.TaskCost.AdjustedEBSStorageCost),

@@ -14,7 +14,6 @@
       adjustedS3ArtifactStorageCost
       adjustedS3LogPutCost
       adjustedS3LogStorageCost
-      onDemandEC2Cost
       total
     }
   }
