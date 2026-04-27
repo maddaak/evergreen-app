@@ -171,7 +171,6 @@ type APIPatchArgs struct {
 // If args are set, includes identifier, branch, and/or child patches from the DB, if applicable.
 func (apiPatch *APIPatch) BuildFromService(ctx context.Context, p patch.Patch, args *APIPatchArgs) error {
 	apiPatch.buildBasePatch(p)
-	apiPatch.populateCostFromVersion(ctx, p.Version)
 
 	projectIdentifier := p.Project
 	if args != nil {
