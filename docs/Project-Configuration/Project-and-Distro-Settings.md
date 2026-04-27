@@ -165,9 +165,12 @@ file via an expansion.
 Options:
 
 - Checking **private** makes the variable redacted so the value won't be
-  visible on the projects page or by API routes. Additionally, private
-  variables will be redacted from task logs. After saving them, private
-  variables cannot be retrieved.
+  visible on the projects page or by API routes. Note that private
+  variables may still be accessible on [debug spawn hosts](../Hosts/Debug-Spawn-Hosts.md) by users,
+  since these hosts run tasks on behalf of the user, which requires fetching expansions as part of that
+  process. For values that must not be accessible even on debug hosts, use **admin only** instead, as these will be restricted even on debug spawn hosts.
+  Additionally, private variables will be redacted from task logs. After
+  saving them, private variables cannot be retrieved.
 - Checking **admin only** restricts the variable so it is only available
   to tasks in mainline commits, periodic builds, or trigger versions, or
   to tasks activated by a project admin.
@@ -281,7 +284,7 @@ the status of those tasks on the mainline commit version.
 
 ### Run Every Mainline Commit
 
-Definitions for this section exist under the "GitHub" tab.
+Definitions for this section exist under the "General Settings" tab.
 
 Although a version gets created for every commit on a project with the repotracker, it does not necessarily activate each version. Evergreen runs a job periodically that activates the latest repotracker version. This is to avoid running unnecessary versions if there are a lot of commits in a short period of time. If you would like to activate every version created by the repotracker, you can enable "Run Every Mainline Commit". This will ensure that every version created by the repotracker gets activated and runs its tasks.
 

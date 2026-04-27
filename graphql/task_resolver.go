@@ -10,6 +10,7 @@ import (
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/annotations"
 	"github.com/evergreen-ci/evergreen/model/build"
+	"github.com/evergreen-ci/evergreen/model/cost"
 	"github.com/evergreen-ci/evergreen/model/distro"
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/evergreen-ci/evergreen/model/task"
@@ -19,6 +20,14 @@ import (
 	"github.com/evergreen-ci/gimlet"
 	"github.com/evergreen-ci/utility"
 )
+
+// Total is the field resolver for Cost.total.
+func (r *costResolver) Total(ctx context.Context, obj *cost.Cost) (*float64, error) {
+	if obj == nil {
+		return nil, nil
+	}
+	return utility.ToFloat64Ptr(cost.RoundCost(obj.TotalAdjusted())), nil
+}
 
 // AbortInfo is the resolver for the abortInfo field.
 func (r *taskResolver) AbortInfo(ctx context.Context, obj *restModel.APITask) (*AbortInfo, error) {
@@ -607,6 +616,21 @@ func (r *taskResolver) NextTaskPassing(ctx context.Context, obj *restModel.APITa
 	return tsk, nil
 }
 
+// InvalidatedByUpstream is the resolver for the invalidatedByUpstream field.
+func (r *taskResolver) InvalidatedByUpstream(ctx context.Context, obj *restModel.APITask) (*bool, error) {
+	if !evergreen.IsGithubMergeQueueRequester(utility.FromStringPtr(obj.Requester)) {
+		return nil, nil
+	}
+	apiPatch, err := data.FindPatchById(ctx, utility.FromStringPtr(obj.Version))
+	if err != nil {
+		return nil, InternalServerError.Send(ctx, fmt.Sprintf("finding patch '%s': %s", utility.FromStringPtr(obj.Version), err.Error()))
+	}
+	if apiPatch == nil {
+		return nil, nil
+	}
+	return &apiPatch.InvalidatedByUpstream, nil
+}
+
 // Patch is the resolver for the patch field.
 func (r *taskResolver) Patch(ctx context.Context, obj *restModel.APITask) (*restModel.APIPatch, error) {
 	if !evergreen.IsPatchRequester(utility.FromStringPtr(obj.Requester)) {
@@ -716,6 +740,24 @@ func (r *taskResolver) TaskLogs(ctx context.Context, obj *restModel.APITask) (*T
 	// We can avoid the overhead of fetching task logs that we will not view
 	// and we can avoid handling errors that we will not see
 	return &TaskLogs{TaskID: utility.FromStringPtr(obj.Id), Execution: obj.Execution}, nil
+}
+
+// TaskCost is the field resolver for Task.taskCost. It applies RoundCost to all
+// adjusted fields so the GraphQL API returns clean values without floating-point noise.
+func (r *taskResolver) TaskCost(ctx context.Context, obj *restModel.APITask) (*cost.Cost, error) {
+	if obj.TaskCost == nil {
+		return nil, nil
+	}
+	rounded := cost.Cost{
+		AdjustedEC2Cost:               cost.RoundCost(obj.TaskCost.AdjustedEC2Cost),
+		AdjustedEBSThroughputCost:     cost.RoundCost(obj.TaskCost.AdjustedEBSThroughputCost),
+		AdjustedEBSStorageCost:        cost.RoundCost(obj.TaskCost.AdjustedEBSStorageCost),
+		AdjustedS3ArtifactPutCost:     cost.RoundCost(obj.TaskCost.AdjustedS3ArtifactPutCost),
+		AdjustedS3LogPutCost:          cost.RoundCost(obj.TaskCost.AdjustedS3LogPutCost),
+		AdjustedS3ArtifactStorageCost: cost.RoundCost(obj.TaskCost.AdjustedS3ArtifactStorageCost),
+		AdjustedS3LogStorageCost:      cost.RoundCost(obj.TaskCost.AdjustedS3LogStorageCost),
+	}
+	return &rounded, nil
 }
 
 // TaskOwnerTeam is the resolver for the taskOwnerTeam field.
@@ -851,7 +893,11 @@ func (r *taskResolver) VersionMetadata(ctx context.Context, obj *restModel.APITa
 	return apiVersion, nil
 }
 
+// Cost returns CostResolver implementation.
+func (r *Resolver) Cost() CostResolver { return &costResolver{r} }
+
 // Task returns TaskResolver implementation.
 func (r *Resolver) Task() TaskResolver { return &taskResolver{r} }
 
+type costResolver struct{ *Resolver }
 type taskResolver struct{ *Resolver }

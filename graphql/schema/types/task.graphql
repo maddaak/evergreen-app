@@ -104,6 +104,7 @@ type Task {
   hostId: String
   imageId: String!
   ingestTime: Time
+  isAutomaticRestart: Boolean!
   isPerfPluginEnabled: Boolean!
   latestExecution: Int!
   logs: TaskLogLinks!
@@ -116,6 +117,7 @@ type Task {
   nextTaskFailing: Task
   nextTaskPassing: Task
   order: Int!
+  invalidatedByUpstream: Boolean
   patch: Patch
   patchNumber: Int
   """
@@ -332,12 +334,16 @@ type TaskOwnerTeam {
 Cost represents the cost breakdown for a task or version.
 """
 type Cost {
-  onDemandEC2Cost: Float
+  """Sum of adjusted cost components; excludes on-demand components."""
+  total: Float
+  childPatchesTotalCost: Float
   adjustedEC2Cost: Float
-  adjustedEBSThroughputCost: Float
   adjustedEBSStorageCost: Float
-  s3ArtifactPutCost: Float
-  s3LogPutCost: Float
+  adjustedEBSThroughputCost: Float
+  adjustedS3ArtifactPutCost: Float
+  adjustedS3ArtifactStorageCost: Float
+  adjustedS3LogPutCost: Float
+  adjustedS3LogStorageCost: Float
 }
 
 input QuarantineTestInput {

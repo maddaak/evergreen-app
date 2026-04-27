@@ -752,6 +752,7 @@ func MarkEnd(ctx context.Context, settings *evergreen.Settings, t *task.Task, ca
 	// Add cost attributes to the context for otel tracing
 	if !t.TaskCost.IsZero() {
 		costAttrs := []attribute.KeyValue{
+			attribute.String(evergreen.TaskIDOtelAttribute, t.Id),
 			attribute.Float64(evergreen.TaskOnDemandCostOtelAttribute, t.TaskCost.OnDemandEC2Cost),
 			attribute.Float64(evergreen.TaskAdjustedCostOtelAttribute, t.TaskCost.AdjustedEC2Cost),
 			attribute.Float64(evergreen.TaskEBSOnDemandThroughputCostOtelAttribute, t.TaskCost.OnDemandEBSThroughputCost),
@@ -974,6 +975,11 @@ func getVersionCtxForTracing(ctx context.Context, v *Version, project string, p 
 		return nil, errors.Wrap(err, "getting time spent")
 	}
 
+	highestExecutionTask, err := v.GetHighestTaskExecution(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "getting highest execution task")
+	}
+
 	attrs := []attribute.KeyValue{
 		attribute.String(evergreen.VersionIDOtelAttribute, v.Id),
 		attribute.String(evergreen.VersionRequesterOtelAttribute, v.Requester),
@@ -987,6 +993,7 @@ func getVersionCtxForTracing(ctx context.Context, v *Version, project string, p 
 		attribute.Int(evergreen.VersionMakespanSecondsOtelAttribute, int(makespan.Seconds())),
 		attribute.String(evergreen.VersionAuthorOtelAttribute, v.Author),
 		attribute.String(evergreen.VersionBranchOtelAttribute, v.Branch),
+		attribute.Int(evergreen.VersionHighestExecutionTaskOtelAttribute, highestExecutionTask),
 	}
 
 	if !v.Cost.IsZero() {

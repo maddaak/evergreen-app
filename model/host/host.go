@@ -295,7 +295,8 @@ type ProvisionOptions struct {
 	SetupScript string `bson:"setup_script" json:"setup_script"`
 
 	// SetupStepNumber, if set, indicates the step number that the debug host
-	// should run until after initializing the daemon. Accepts step notation (e.g., "5" or "5.1")
+	// should run up to (exclusive) after initializing the daemon. The specified
+	// step will not be executed. Accepts step notation (e.g., "5" or "5.1").
 	SetupStepNumber string `bson:"setup_step_number,omitempty" json:"setup_step_number,omitempty"`
 }
 
@@ -321,6 +322,9 @@ type SpawnOptions struct {
 	// BuildID is the build_id of the build to which this host is pinned. When the build finishes,
 	// this host should be torn down. Only one of TaskID or BuildID should be set.
 	BuildID string `bson:"build_id,omitempty" json:"build_id,omitempty"`
+
+	// ProjectID is the ID of the project that's running the task.
+	ProjectID string `bson:"project_id,omitempty" json:"project_id,omitempty"`
 
 	// Retries is the number of times Evergreen should try to spawn this host.
 	Retries int `bson:"retries,omitempty" json:"retries,omitempty"`

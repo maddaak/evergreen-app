@@ -33,11 +33,11 @@ var (
 
 	// ClientVersion is the commandline version string used to control updating
 	// the CLI. The format is the calendar date (YYYY-MM-DD).
-	ClientVersion = "2026-04-03a"
+	ClientVersion = "2026-04-27"
 
 	// Agent version to control agent rollover. The format is the calendar date
 	// (YYYY-MM-DD).
-	AgentVersion = "2026-04-08"
+	AgentVersion = "2026-04-27"
 )
 
 const (
@@ -739,6 +739,10 @@ func (s *Settings) makeSplunkSender(ctx context.Context, client *http.Client, le
 		if sender, err = send.NewBufferedSender(ctx, sender, opts); err != nil {
 			return nil, errors.Wrap(err, "making Splunk buffered sender")
 		}
+	}
+
+	if s.Tracer.TraceURLTemplate != "" {
+		sender = send.NewTraceURLSender(sender, s.Tracer.TraceURLTemplate)
 	}
 
 	return sender, nil

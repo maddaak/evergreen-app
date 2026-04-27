@@ -202,6 +202,44 @@ func (gh *githubHookApi) Run(ctx context.Context) gimlet.Responder {
 				"user":      event.GetSender().GetLogin(),
 				"message":   "PR accepted, attempting to queue",
 			})
+
+			skip, err := shouldSkipCIForGraphite(ctx,
+				event.Repo.Owner.GetLogin(),
+				event.Repo.GetName(),
+				event.PullRequest.GetNumber(),
+				event.PullRequest.GetHead().GetSHA(),
+				event.PullRequest.GetBase().GetRef(),
+				event.PullRequest.GetHead().GetRef(),
+			)
+			grip.Error(ctx, message.WrapError(err, message.Fields{
+				"source":    "GitHub hook",
+				"msg_id":    gh.msgID,
+				"event":     gh.eventType,
+				"message":   "error checking Graphite CI optimizer",
+				"owner":     event.Repo.Owner.GetLogin(),
+				"repo":      event.Repo.GetName(),
+				"pr_number": event.PullRequest.GetNumber(),
+				"head_sha":  event.PullRequest.GetHead().GetSHA(),
+				"base_ref":  event.PullRequest.GetBase().GetRef(),
+				"head_ref":  event.PullRequest.GetHead().GetRef(),
+			}))
+			// Continue on error - don't block PR patch creation.
+			if skip {
+				grip.Debug(ctx, message.Fields{
+					"source":    "GitHub hook",
+					"msg_id":    gh.msgID,
+					"event":     gh.eventType,
+					"message":   "Graphite CI optimizer determined this PR does not need to be tested",
+					"owner":     event.Repo.Owner.GetLogin(),
+					"repo":      event.Repo.GetName(),
+					"pr_number": event.PullRequest.GetNumber(),
+					"head_sha":  event.PullRequest.GetHead().GetSHA(),
+					"base_ref":  event.PullRequest.GetBase().GetRef(),
+					"head_ref":  event.PullRequest.GetHead().GetRef(),
+				})
+				break
+			}
+
 			if err := gh.AddIntentForPR(ctx, event.PullRequest, event.Sender.GetLogin(), patch.AutomatedCaller, "", false); err != nil {
 				grip.Error(ctx, message.WrapError(err, message.Fields{
 					"source":    "GitHub hook",
@@ -380,10 +418,21 @@ func (gh *githubHookApi) rerunCheckRun(ctx context.Context, owner, repo string, 
 	}
 
 	// Get the project's GitHub app auth for check run operations.
-	// If this fails or the project doesn't have a GitHub app configured,
-	// the check run functions will fall back to using the internal app.
-	ghAppAuth := model.GetGitHubAppAuthForProject(ctx, taskToRestart.Project)
-
+	ghAppAuth, err := model.GetAndValidateCheckRunGitHubAppAuth(ctx, taskToRestart)
+	if err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"source":    "GitHub hook",
+			"operation": "check run",
+			"msg_id":    gh.msgID,
+			"event":     gh.eventType,
+			"owner":     owner,
+			"repo":      repo,
+			"task":      taskToRestart.Id,
+			"message":   "checkRun not updated for task",
+		}))
+		// Don't want to retry on this case, so log but return no error.
+		return nil
+	}
 	// Check run status should stay the same while task is being re-run.
 	latestExecutionForTask.Status = taskToRestart.Status
 	_, err = thirdparty.UpdateCheckRun(ctx, owner, repo, gh.settings.Api.URL, checkRun.GetID(), latestExecutionForTask, output, ghAppAuth)
@@ -855,22 +904,6 @@ func (gh *githubHookApi) createPRPatch(ctx context.Context, owner, repo, calledB
 	pr, err := thirdparty.GetGithubPullRequest(ctx, owner, repo, prNumber)
 	if err != nil {
 		return errors.Wrapf(err, "getting PR for repo '%s:%s', PR #%d", owner, repo, prNumber)
-	}
-
-	skip, err := shouldSkipCIForGraphite(ctx, owner, repo, prNumber, pr.Head.GetSHA(), pr.Base.GetRef(), pr.Head.GetRef())
-	if err != nil {
-		grip.Error(ctx, message.WrapError(err, message.Fields{
-			"message": "error checking Graphite CI optimizer",
-			"owner":   owner,
-			"repo":    repo,
-			"pr":      prNumber,
-			"sha":     pr.Head.GetSHA(),
-			"ref":     pr.Base.GetRef(),
-			"headRef": pr.Head.GetRef(),
-		}))
-		// Continue on error - don't block PR patch creation.
-	} else if skip {
-		return nil
 	}
 
 	baseBranch := pr.Base.GetRef()

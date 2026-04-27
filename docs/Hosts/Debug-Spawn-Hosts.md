@@ -47,10 +47,10 @@ Follow these steps to start a debugging session:
    evergreen debug daemon status
    ```
 
-2. **Load your project's configuration file.** This tells the debugger where to find your task definitions. The file is pre-loaded into the spawn host entry point.
+2. **Load your project's configuration file.** This tells the debugger where to find your task definitions. The file is pre-loaded into the `~/debug_project_config/` directory on the spawn host.
 
    ```bash
-   evergreen debug load evergreen.yml
+   evergreen debug load ~/debug_project_config/evergreen.yml
    ```
 
 3. **Select the task you want to debug.** Use the exact task name as it appears in your Evergreen configuration.
@@ -85,7 +85,7 @@ Your task failed at [step](#understanding-step-numbers) 5. Here's how to debug i
 
 ```bash
 # Load config and select your task
-evergreen debug load ./evergreen.yml
+evergreen debug load ~/debug_project_config/evergreen.yml
 evergreen debug select my_failing_task
 
 # Execute up to the problem step
@@ -123,7 +123,7 @@ evergreen debug next
 If you know steps 1-3 work fine and want to debug step 4:
 
 ```bash
-evergreen debug load ./evergreen.yml
+evergreen debug load ~/debug_project_config/evergreen.yml
 evergreen debug select my_task
 
 # Jump straight to step 4 and execute it
@@ -137,10 +137,10 @@ You can modify your `evergreen.yml` file and reload it between steps to test con
 
 ```bash
 # Edit your evergreen.yml file
-vim evergreen.yml
+vim ~/debug_project_config/evergreen.yml
 
 # Reload the modified configuration
-evergreen debug load ./evergreen.yml
+evergreen debug load ~/debug_project_config/evergreen.yml
 
 # Your task selection, step position, and custom expansions are all preserved
 # Continue debugging with the updated configuration
@@ -170,7 +170,7 @@ The hot reload preserves:
 Load a project configuration file. The path can be relative or absolute. Must be run before selecting a task.
 
 ```bash
-evergreen debug load ./evergreen.yml
+evergreen debug load ~/debug_project_config/evergreen.yml
 evergreen debug load /home/user/project/evergreen.yml
 ```
 
@@ -354,6 +354,53 @@ Stop a running debugger.
 evergreen debug daemon stop
 ```
 
+## Debugging Locally (Without a Spawn Host)
+
+You can also use the task debugger on your local laptop without creating a spawn host. Instead of selecting a task manually, you must provide a task ID and the debugger fetches the project configuration directly from Evergreen. Be mindful that your local device architecture may have key discrepancies with the OS used by the passed in task ID.
+
+### Requirements
+
+- You must have **patch submit** permissions on the project associated with the task.
+- Debug spawn hosts must be enabled for the project.
+
+### Quick Start
+
+1. **Find the task ID** of the task you want to debug.
+
+2. **Start the daemon:**
+
+   ```bash
+   evergreen debug daemon start
+   ```
+
+3. **Load the task by ID:**
+
+   ```bash
+   evergreen debug load --task-id <task_id>
+   ```
+
+   This fetches the project configuration and task expansions from the server and automatically selects the task and its build variant. No local config file is needed.
+
+   Output:
+
+   ```text
+   Loaded and auto-selected task: compile (variant: ubuntu2204)
+   Total steps: 8
+   ```
+
+4. **Start stepping through:**
+
+   ```bash
+   evergreen debug list-steps
+   evergreen debug next
+   ```
+
+In local usage, the task is automatically loaded into the debugger based on its ID. The `evergreen debug select` command is not permitted. Optionally, you can provide a local YAML path as well, which overrides the server-fetched config while keeping the task's expansions and variables. For example:
+
+```bash
+evergreen debug load --task-id <task_id> ./my-modified-evergreen.yml
+```
+
 ## Prerequisites and Limitations
 
 ### Prerequisites
@@ -451,3 +498,4 @@ When investigating issues, check the following:
 1. Output from `evergreen debug daemon status`
 2. Relevant daemon logs from `~/.evergreen-local/daemon.log`
 3. Relevant execution logs from `evergreen debug logs`
+4. Relevant execution logs from the setup phase from `evergreen debug logs --setup`
