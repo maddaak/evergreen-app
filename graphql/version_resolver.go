@@ -138,7 +138,6 @@ func (r *versionResolver) Cost(ctx context.Context, obj *restModel.APIVersion) (
 		return nil, nil
 	}
 	rounded := cost.Cost{
-		OnDemandEC2Cost:               obj.Cost.OnDemandEC2Cost,
 		AdjustedEC2Cost:               cost.RoundCost(obj.Cost.AdjustedEC2Cost),
 		AdjustedEBSThroughputCost:     cost.RoundCost(obj.Cost.AdjustedEBSThroughputCost),
 		AdjustedEBSStorageCost:        cost.RoundCost(obj.Cost.AdjustedEBSStorageCost),
