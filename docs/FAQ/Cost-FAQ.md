@@ -10,7 +10,7 @@ All costs displayed in Evergreen have applicable discounts applied. Discount rat
 
 ## What cost fields does Evergreen track?
 
-Cost is tracked at the task level and rolls up to the version level once all tasks finish.
+Cost is tracked at the task level and rolls up to the version and patch level once all tasks finish.
 
 **Task-level fields:**
 
@@ -28,7 +28,9 @@ All values reflect discounted costs. For field names, non-discounted list-price 
 
 **Version-level fields:**
 
-The version aggregates costs across all its tasks once they finish. A predicted cost estimate is also available on both the task and version while tasks are still running — see [How is predicted cost calculated?](#how-is-predicted-cost-calculated).
+The version aggregates costs across all its tasks once they finish. For patch-triggered versions (such as PR patches), child patches run as separate versions and their costs are included in the parent version's cost total.
+
+A predicted cost estimate is also available on the task, version, and patch while tasks are still running — see [How is predicted cost calculated?](#how-is-predicted-cost-calculated).
 
 ## How is EC2 cost calculated?
 
@@ -132,13 +134,13 @@ Artifact PUT costs are only calculated if the task uploaded files via `s3.put`. 
 
 Predicted cost is an estimate of the total task cost before a task finishes, covering all cost categories (EC2, EBS, and S3). It is computed by averaging the actual costs for the same task — by name, project, and build variant — over the past week. If no matching task history exists within the past week, predicted cost is not available.
 
-Predicted cost is available on both the task and version endpoints while tasks are running. On a version, it represents the sum of predicted costs across all of its tasks.
+Predicted cost is available on the task, version, and patch endpoints while tasks are running. On a version or patch, it represents the sum of predicted costs across all tasks. On a patch, it also includes predicted costs from child patches.
 
 Once tasks finish, the actual cost is calculated and stored separately. Predicted cost is not updated after tasks complete — it always reflects the pre-run estimate, not the final actual total.
 
 ## How can I view cost data via the REST API?
 
-Cost fields are returned on the task and version endpoints. For full authentication and usage details, see the [REST API documentation](../API/REST-V2-Usage).
+Cost fields are returned on the task, version, and patch endpoints. For full authentication and usage details, see the [REST API documentation](../API/REST-V2-Usage).
 
 Discounted fields are prefixed `adjusted_` and non-discounted list-price fields are prefixed `on_demand_` (for example, `adjusted_ec2_cost` and `on_demand_ec2_cost`).
 
@@ -148,10 +150,16 @@ Discounted fields are prefixed `adjusted_` and non-discounted list-price fields 
 GET https://evergreen.mongodb.com/rest/v2/tasks/{task_id}
 ```
 
-**Version** — returns `cost` (aggregated discounted cost across all tasks), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics across all tasks). `cost` is only populated once all tasks have finished running.
+**Version** — returns `cost` (aggregated discounted cost across all tasks, including child patch costs), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics across all tasks). `cost` is only populated once all tasks have finished running.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/versions/{version_id}
 ```
 
-Both endpoints require authentication. For full details, see the [REST API documentation](../API/REST-V2-Usage).
+**Patch** — returns `cost` (aggregated discounted cost including child patch costs), `predicted_cost` (including child patch predicted costs), and `s3_usage` (aggregated artifact and log upload metrics). The `cost` object also includes `child_patches_total_cost`, which breaks out how much of the total came from child patches versus the parent — use this endpoint when you need that breakdown. The [patch](../Reference/Glossary#patch-build) ID and version ID are the same value — both endpoints accept the same ID and return the same cost total.
+
+```text
+GET https://evergreen.mongodb.com/rest/v2/patches/{patch_id}
+```
+
+All endpoints require authentication. For full details, see the [REST API documentation](../API/REST-V2-Usage).
