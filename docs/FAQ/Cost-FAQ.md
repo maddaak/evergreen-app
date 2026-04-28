@@ -14,15 +14,15 @@ Cost is tracked at the task level and rolls up to the version level once all tas
 
 **Task-level fields:**
 
-| Category | Description |
-| -------- | ----------- |
-| EC2 | Runtime cost with discounts applied |
-| EBS | Throughput cost above the 125 MB/s free tier, with discount applied |
-| EBS | Storage cost for the attached volume, with discount applied |
-| S3 | PUT request cost for uploading user artifacts |
-| S3 | Storage cost for uploaded artifacts over their retention period |
-| S3 | PUT request cost for uploading task log chunks |
-| S3 | Storage cost for uploaded logs over their retention period |
+| Category | Description                                                         |
+| -------- | ------------------------------------------------------------------- |
+| EC2      | Runtime cost with discounts applied                                 |
+| EBS      | Throughput cost above the 125 MB/s free tier, with discount applied |
+| EBS      | Storage cost for the attached volume, with discount applied         |
+| S3       | PUT request cost for uploading user artifacts                       |
+| S3       | Storage cost for uploaded artifacts over their retention period     |
+| S3       | PUT request cost for uploading task log chunks                      |
+| S3       | Storage cost for uploaded logs over their retention period          |
 
 All values reflect discounted costs. For field names, non-discounted list-price equivalents, and the full cost breakdown, see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
 
