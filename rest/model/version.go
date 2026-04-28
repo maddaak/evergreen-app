@@ -10,6 +10,9 @@ import (
 	"github.com/evergreen-ci/evergreen/model/patch"
 	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/utility"
+	"github.com/mongodb/grip"
+	"github.com/mongodb/grip/message"
+	"github.com/pkg/errors"
 )
 
 // APIVersion is the model to be returned by the API whenever versions are fetched.
@@ -179,12 +182,16 @@ func (apiVersion *APIVersion) BuildFromService(ctx context.Context, v model.Vers
 			if err != nil {
 				return
 			}
+			isFinished := evergreen.IsFinishedVersionStatus(v.Status)
 			for _, childPatch := range childPatches {
 				if !childPatch.StartTime.IsZero() && childPatch.StartTime.Before(utility.FromTimePtr(apiVersion.StartTime)) {
 					apiVersion.StartTime = ToTimePtr(childPatch.StartTime)
 				}
 				if !childPatch.FinishTime.IsZero() && childPatch.FinishTime.After(utility.FromTimePtr(apiVersion.FinishTime)) {
 					apiVersion.FinishTime = ToTimePtr(childPatch.FinishTime)
+				}
+				if isFinished && childPatch.Version != "" {
+					accumulateChildPatchCost(ctx, childPatch, v.Id, apiVersion)
 				}
 			}
 		}
@@ -193,4 +200,33 @@ func (apiVersion *APIVersion) BuildFromService(ctx context.Context, v model.Vers
 
 func (apiVersion *APIVersion) IsPatchRequester() bool {
 	return evergreen.IsPatchRequester(utility.FromStringPtr(apiVersion.Requester))
+}
+
+// accumulateChildPatchCost fetches the version for a child patch and adds its
+// adjusted costs to the parent version's Cost and PredictedCost totals.
+func accumulateChildPatchCost(ctx context.Context, cp patch.Patch, parentVersionID string, apiVersion *APIVersion) {
+	cv, err := model.VersionFindOneId(ctx, cp.Version)
+	if err != nil {
+		grip.Debug(ctx, message.WrapError(errors.Wrapf(err, "getting version for child patch '%s'", cp.Id.Hex()), message.Fields{
+			"message":       "could not load version for child patch cost",
+			"child_patch":   cp.Id.Hex(),
+			"child_version": cp.Version,
+			"parent":        parentVersionID,
+		}))
+		return
+	}
+	if cv == nil {
+		return
+	}
+	if apiVersion.Cost == nil {
+		apiVersion.Cost = &cost.Cost{}
+	}
+	apiVersion.Cost.ChildPatchesTotalCost += cv.Cost.TotalAdjusted()
+	apiVersion.Cost.Total = apiVersion.Cost.TotalAdjusted()
+
+	if apiVersion.PredictedCost == nil {
+		apiVersion.PredictedCost = &cost.Cost{}
+	}
+	apiVersion.PredictedCost.ChildPatchesTotalCost += cv.PredictedCost.TotalAdjusted()
+	apiVersion.PredictedCost.Total = apiVersion.PredictedCost.TotalAdjusted()
 }

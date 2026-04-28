@@ -4,8 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evergreen-ci/evergreen"
+	"github.com/evergreen-ci/evergreen/db"
+	mgobson "github.com/evergreen-ci/evergreen/db/mgo/bson"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/cost"
+	"github.com/evergreen-ci/evergreen/model/patch"
 	"github.com/evergreen-ci/evergreen/model/s3usage"
 	"github.com/evergreen-ci/evergreen/model/task"
 	"github.com/evergreen-ci/utility"
@@ -195,6 +199,230 @@ func TestVersionBuildFromServiceS3Usage(t *testing.T) {
 
 		assert.Nil(t, apiVersion.S3Usage)
 	})
+}
+
+func TestVersionBuildFromServiceChildPatchCosts(t *testing.T) {
+	require.NoError(t, db.ClearCollections(model.VersionCollection, patch.Collection))
+	t.Cleanup(func() { db.ClearCollections(model.VersionCollection, patch.Collection) }) //nolint:errcheck
+
+	childPatchID := mgobson.NewObjectId()
+	childVersionID := "child-version-1"
+
+	childVersion := model.Version{
+		Id: childVersionID,
+		Cost: cost.Cost{
+			AdjustedEC2Cost:      3.0,
+			AdjustedS3LogPutCost: 0.5,
+		},
+		PredictedCost: cost.Cost{
+			AdjustedEC2Cost: 2.0,
+		},
+	}
+	require.NoError(t, childVersion.Insert(t.Context()))
+
+	childPatchDoc := patch.Patch{
+		Id:      childPatchID,
+		Version: childVersionID,
+		Status:  evergreen.VersionSucceeded,
+	}
+	require.NoError(t, childPatchDoc.Insert(t.Context()))
+
+	// patch.FindOneId requires a valid ObjectId hex, so version ID must equal the patch ObjectId hex.
+	parentPatchID := mgobson.NewObjectId()
+	parentVersionID := parentPatchID.Hex()
+	parentPatchDoc := patch.Patch{
+		Id:      parentPatchID,
+		Version: parentVersionID,
+		Status:  evergreen.VersionSucceeded,
+		Triggers: patch.TriggerInfo{
+			ChildPatches: []string{childPatchID.Hex()},
+		},
+	}
+	require.NoError(t, parentPatchDoc.Insert(t.Context()))
+
+	parentVersion := model.Version{
+		Id:        parentVersionID,
+		Requester: evergreen.PatchVersionRequester,
+		Status:    evergreen.VersionSucceeded,
+		Cost: cost.Cost{
+			AdjustedEC2Cost: 10.0,
+		},
+		PredictedCost: cost.Cost{
+			AdjustedEC2Cost: 8.0,
+		},
+	}
+
+	apiVersion := &APIVersion{}
+	apiVersion.BuildFromService(t.Context(), parentVersion)
+
+	require.NotNil(t, apiVersion.Cost)
+	// Child adjusted total = 3.0 + 0.5 = 3.5
+	assert.InDelta(t, 3.5, apiVersion.Cost.ChildPatchesTotalCost, 0.001)
+	// Total = parent adjusted total + child patches total = 10.0 + 3.5 = 13.5
+	assert.InDelta(t, 13.5, apiVersion.Cost.Total, 0.001)
+
+	require.NotNil(t, apiVersion.PredictedCost)
+	// Child predicted adjusted total = 2.0
+	assert.InDelta(t, 2.0, apiVersion.PredictedCost.ChildPatchesTotalCost, 0.001)
+	// Total = parent predicted adjusted total + child patches total = 8.0 + 2.0 = 10.0
+	assert.InDelta(t, 10.0, apiVersion.PredictedCost.Total, 0.001)
+}
+
+func TestVersionBuildFromServiceChildPatchCostsSkippedWhenNotFinished(t *testing.T) {
+	require.NoError(t, db.ClearCollections(model.VersionCollection, patch.Collection))
+	t.Cleanup(func() { db.ClearCollections(model.VersionCollection, patch.Collection) }) //nolint:errcheck
+
+	childPatchID := mgobson.NewObjectId()
+	childVersionID := "child-version-not-finished"
+
+	childPatchDoc := patch.Patch{
+		Id:      childPatchID,
+		Version: childVersionID,
+		Status:  evergreen.VersionSucceeded,
+	}
+	require.NoError(t, childPatchDoc.Insert(t.Context()))
+
+	parentPatchID := mgobson.NewObjectId()
+	parentVersionID := parentPatchID.Hex()
+	parentPatchDoc := patch.Patch{
+		Id:      parentPatchID,
+		Version: parentVersionID,
+		Status:  evergreen.VersionStarted,
+		Triggers: patch.TriggerInfo{
+			ChildPatches: []string{childPatchID.Hex()},
+		},
+	}
+	require.NoError(t, parentPatchDoc.Insert(t.Context()))
+
+	parentVersion := model.Version{
+		Id:        parentVersionID,
+		Requester: evergreen.PatchVersionRequester,
+		Status:    evergreen.VersionStarted,
+		Cost: cost.Cost{
+			AdjustedEC2Cost: 10.0,
+		},
+	}
+
+	apiVersion := &APIVersion{}
+	apiVersion.BuildFromService(t.Context(), parentVersion)
+
+	require.NotNil(t, apiVersion.Cost)
+	assert.Zero(t, apiVersion.Cost.ChildPatchesTotalCost)
+	// Total reflects only the parent's own cost — child costs not loaded
+	assert.InDelta(t, 10.0, apiVersion.Cost.Total, 0.001)
+}
+
+func TestVersionBuildFromServiceChildPatchCostSkipsInvalidChildren(t *testing.T) {
+	require.NoError(t, db.ClearCollections(model.VersionCollection, patch.Collection))
+	t.Cleanup(func() { db.ClearCollections(model.VersionCollection, patch.Collection) }) //nolint:errcheck
+
+	// Child 1: no version yet (not started)
+	noVersionPatchID := mgobson.NewObjectId()
+	noVersionPatch := patch.Patch{
+		Id:     noVersionPatchID,
+		Status: evergreen.VersionCreated,
+	}
+	require.NoError(t, noVersionPatch.Insert(t.Context()))
+
+	// Child 2: version ID set but no version doc in DB
+	missingVersionPatchID := mgobson.NewObjectId()
+	missingVersionPatch := patch.Patch{
+		Id:      missingVersionPatchID,
+		Version: "version-does-not-exist",
+		Status:  evergreen.VersionStarted,
+	}
+	require.NoError(t, missingVersionPatch.Insert(t.Context()))
+
+	// Child 3: valid version with real cost — only this one should contribute
+	validChildPatchID := mgobson.NewObjectId()
+	validChildVersion := model.Version{
+		Id: "valid-child-version",
+		Cost: cost.Cost{
+			AdjustedEC2Cost: 4.0,
+		},
+	}
+	require.NoError(t, validChildVersion.Insert(t.Context()))
+	validChildPatch := patch.Patch{
+		Id:      validChildPatchID,
+		Version: validChildVersion.Id,
+		Status:  evergreen.VersionSucceeded,
+	}
+	require.NoError(t, validChildPatch.Insert(t.Context()))
+
+	parentPatchID := mgobson.NewObjectId()
+	parentVersionID := parentPatchID.Hex()
+	parentPatchDoc := patch.Patch{
+		Id:      parentPatchID,
+		Version: parentVersionID,
+		Status:  evergreen.VersionSucceeded,
+		Triggers: patch.TriggerInfo{
+			ChildPatches: []string{noVersionPatchID.Hex(), missingVersionPatchID.Hex(), validChildPatchID.Hex()},
+		},
+	}
+	require.NoError(t, parentPatchDoc.Insert(t.Context()))
+
+	parentVersion := model.Version{
+		Id:        parentVersionID,
+		Requester: evergreen.PatchVersionRequester,
+		Status:    evergreen.VersionSucceeded,
+		Cost: cost.Cost{
+			AdjustedEC2Cost: 10.0,
+		},
+	}
+
+	apiVersion := &APIVersion{}
+	apiVersion.BuildFromService(t.Context(), parentVersion)
+
+	require.NotNil(t, apiVersion.Cost)
+	assert.InDelta(t, 4.0, apiVersion.Cost.ChildPatchesTotalCost, 0.001)
+	// Total = parent 10.0 + valid child 4.0 = 14.0
+	assert.InDelta(t, 14.0, apiVersion.Cost.Total, 0.001)
+}
+
+func TestVersionBuildFromServiceChildPatchCostAllocatesWhenParentHasNoCost(t *testing.T) {
+	require.NoError(t, db.ClearCollections(model.VersionCollection, patch.Collection))
+	t.Cleanup(func() { db.ClearCollections(model.VersionCollection, patch.Collection) }) //nolint:errcheck
+
+	childPatchID := mgobson.NewObjectId()
+	childVersion := model.Version{
+		Id: "child-version-no-parent-cost",
+		Cost: cost.Cost{
+			AdjustedEC2Cost: 6.0,
+		},
+	}
+	require.NoError(t, childVersion.Insert(t.Context()))
+	childPatchDoc := patch.Patch{
+		Id:      childPatchID,
+		Version: childVersion.Id,
+		Status:  evergreen.VersionSucceeded,
+	}
+	require.NoError(t, childPatchDoc.Insert(t.Context()))
+
+	parentPatchID := mgobson.NewObjectId()
+	parentVersionID := parentPatchID.Hex()
+	parentPatchDoc := patch.Patch{
+		Id:      parentPatchID,
+		Version: parentVersionID,
+		Status:  evergreen.VersionSucceeded,
+		Triggers: patch.TriggerInfo{
+			ChildPatches: []string{childPatchID.Hex()},
+		},
+	}
+	require.NoError(t, parentPatchDoc.Insert(t.Context()))
+
+	// Parent has no own cost — Cost field is zero
+	parentVersion := model.Version{
+		Id:        parentVersionID,
+		Requester: evergreen.PatchVersionRequester,
+		Status:    evergreen.VersionSucceeded,
+	}
+
+	apiVersion := &APIVersion{}
+	apiVersion.BuildFromService(t.Context(), parentVersion)
+
+	require.NotNil(t, apiVersion.Cost)
+	assert.InDelta(t, 6.0, apiVersion.Cost.ChildPatchesTotalCost, 0.001)
+	assert.InDelta(t, 6.0, apiVersion.Cost.Total, 0.001)
 }
 
 func TestAPITaskBuildFromServiceSetsCostTotals(t *testing.T) {
