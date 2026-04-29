@@ -208,7 +208,6 @@ func TestAPIPatchBuildModuleChanges(t *testing.T) {
 	assert.NotEqual(t, strings.Index(utility.FromStringPtr(a.ModuleCodeChanges[0].FileDiffs[1].DiffLink), "commit_number=1"), -1)
 	assert.NotEqual(t, strings.Index(utility.FromStringPtr(a.ModuleCodeChanges[0].FileDiffs[2].DiffLink), "commit_number=2"), -1)
 	assert.NotEqual(t, strings.Index(utility.FromStringPtr(a.ModuleCodeChanges[0].FileDiffs[3].DiffLink), "commit_number=3"), -1)
-
 }
 
 func TestGithubPatch(t *testing.T) {
