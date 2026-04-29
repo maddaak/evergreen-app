@@ -8,7 +8,12 @@ Evergreen tracks the infrastructure cost of every task across three categories:
 
 All costs displayed in Evergreen have applicable discounts applied. Discount rates, the finance formula, and other cost parameters are maintained by the Financial Planning and Analysis (FP&A) team and configured in Evergreen's admin settings.
 
-Cost information is shown on the task, version, and patch pages in the Evergreen UI — a predicted estimate is shown while tasks are running, with a full cost breakdown available once they complete. The breakdown includes a link to Honeycomb for deeper per-component analysis. Cost data is also available programmatically via the REST API — see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
+Cost information is shown on the task, version, and patch pages in the Evergreen UI.
+
+- While a task is running, a predicted cost is shown; once it completes, the actual cost is shown.
+- On version and patch pages, a running total of costs from completed tasks is shown throughout.
+
+Once all tasks have finished, the full cost breakdown becomes available on each page, including a link to Honeycomb for a more detailed per-component view. Cost data is also available via the REST API — see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
 
 ## What cost fields does Evergreen track?
 
@@ -16,23 +21,21 @@ Cost is tracked at the task level and rolls up to the version and patch level as
 
 **Task-level fields:**
 
-| Category | Subcategory      | Description                                                     |
-| -------- | ---------------- | --------------------------------------------------------------- |
-| EC2      |                  | Runtime cost with discounts applied                             |
-| EBS      | Throughput       | Cost above the 125 MB/s free tier, with discount applied        |
-| EBS      | Storage          | Cost for the attached volume, with discount applied             |
-| S3       | Artifact PUT     | PUT request cost for uploading user artifacts                   |
-| S3       | Artifact storage | Storage cost for uploaded artifacts over their retention period |
-| S3       | Log PUT          | PUT request cost for uploading task logs                        |
-| S3       | Log storage      | Storage cost for uploaded logs over their retention period      |
+| Category | Subcategory      | Description                                                              |
+| -------- | ---------------- | ------------------------------------------------------------------------ |
+| EC2      |                  | Runtime cost with discounts applied                                      |
+| EBS      | Throughput       | Cost above the 125 MB/s free tier, with discount applied                 |
+| EBS      | Storage          | Cost for the attached volume, with discount applied                      |
+| S3       | Artifact PUT     | PUT request cost for uploading user artifacts via the `s3.put` command   |
+| S3       | Artifact storage | Storage cost for uploaded artifacts using S3 Intelligent Tiering pricing |
+| S3       | Log PUT          | PUT request cost for uploading task logs                                 |
+| S3       | Log storage      | Storage cost for uploaded logs over their retention period               |
 
 All values reflect discounted costs. For field names and the full cost breakdown, see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
 
 **Version-level fields:**
 
 The version aggregates costs across all its tasks as they finish. For patch-triggered versions, child patches run as separate versions with their own independent cost tracking — see [Child patch costs](#child-patch-costs).
-
-**Predicted cost:** An estimate is available on the task, version, and patch — see [How is predicted cost calculated?](#how-is-predicted-cost-calculated).
 
 ## How is EC2 cost calculated?
 
@@ -56,9 +59,9 @@ EBS is the disk attached to the EC2 instance. Two components are tracked: throug
 GP3 volumes can be provisioned with higher throughput than the 125 MB/s AWS free tier. Only the throughput above that baseline is billable. If a distro has no GP3 mount points, or all volumes are at or below 125 MB/s, the throughput cost is zero.
 
 ```text
-seconds_per_month            = 2_592_000  # seconds in a 30-day month
 billable_throughput           = total_gp3_throughput_MBps - 125
-adjusted_ebs_throughput_cost  = (billable_throughput * 0.04 / seconds_per_month) * runtime_seconds * (1 - ebs_discount)
+adjusted_ebs_throughput_cost  = (billable_throughput * 0.04 / 2_592_000) * runtime_seconds * (1 - ebs_discount)
+                                                               ^ seconds in a 30-day month
 ```
 
 ### EBS storage cost
@@ -66,8 +69,8 @@ adjusted_ebs_throughput_cost  = (billable_throughput * 0.04 / seconds_per_month)
 Storage cost is based on the total size of all attached volumes, prorated to the task's actual runtime.
 
 ```text
-seconds_per_month         = 2_592_000  # seconds in a 30-day month
-adjusted_ebs_storage_cost = (volume_size_GB * 0.08 / seconds_per_month) * runtime_seconds * (1 - ebs_discount)
+adjusted_ebs_storage_cost = (volume_size_GB * 0.08 / 2_592_000) * runtime_seconds * (1 - ebs_discount)
+                                                       ^ seconds in a 30-day month
 ```
 
 The EBS discount rate applies to both throughput and storage.
@@ -86,7 +89,7 @@ The number of PUT requests per file:
 - Files 5 MB and over: 1 (initiate) + number of 5 MB parts + 1 (complete). For example, a 12 MB file uses 5 PUT requests (1 initiate + 3 parts + 1 complete).
 
 ```text
-s3_put_price                  = 0.000005  # dollars per PUT request (AWS standard rate)
+s3_put_price                  = 0.000005  # $5 per million PUT requests (AWS standard rate)
 adjusted_s3_artifact_put_cost = artifact_put_requests * s3_put_price * (1 - upload_cost_discount)
 ```
 
@@ -95,15 +98,13 @@ adjusted_s3_artifact_put_cost = artifact_put_requests * s3_put_price * (1 - uplo
 Task logs are uploaded to S3 as the task runs; each upload uses a single PUT request. The cost uses the same rate and discount as artifact PUT costs and is calculated as logs are uploaded.
 
 ```text
-s3_put_price             = 0.000005  # dollars per PUT request (AWS standard rate)
+s3_put_price             = 0.000005  # $5 per million PUT requests (AWS standard rate)
 adjusted_s3_log_put_cost = log_put_requests * s3_put_price * (1 - upload_cost_discount)
 ```
 
 ### Storage cost
 
-Storage cost uses S3 Intelligent Tiering pricing, which transitions objects through three tiers based on their access patterns. Storage cost is calculated when the task finishes, using the bucket's lifecycle rule to determine how long the uploaded files will be retained. To simplify the cost calculations, Evergreen starts counting tier days from the day the objects are uploaded.
-
-The same formula applies to both artifact and log storage, using the respective upload bytes and each bucket's own lifecycle rule.
+Artifact and log storage both use S3 Intelligent Tiering pricing, which automatically places objects into tiers based on their access patterns. Storage cost is calculated when the task finishes, using each bucket's S3 expiration lifecycle rule to determine the retention period. To simplify the cost calculations, Evergreen starts counting tier days from the day the objects are uploaded.
 
 | Tier              | Days  | Price per GB-month |
 | ----------------- | ----- | ------------------ |
@@ -111,7 +112,7 @@ The same formula applies to both artifact and log storage, using the respective 
 | Infrequent Access | 30–90 | $0.0125            |
 | Archive           | 90+   | $0.004             |
 
-The retention period is read from the bucket's S3 lifecycle rule. If no lifecycle rule is found, Evergreen falls back to a system default retention period. Costs are only calculated for DevProd-owned buckets.
+The retention period is read from the bucket's S3 expiration lifecycle rule. If no expiration rule is found, Evergreen falls back to a system default retention period. Separate discounts can be configured for each tier. Costs are only calculated for DevProd-owned buckets.
 
 :::note
 
@@ -132,25 +133,19 @@ adjusted_s3_storage_cost = size_gb * (
 )
 ```
 
-### When are S3 costs calculated?
-
-S3 PUT costs are only calculated if the task uploaded files.
-
 ## How is predicted cost calculated?
 
 Predicted cost is an estimate of what the cost will be for a task, covering all cost categories (EC2, EBS, and S3). It is computed by averaging the historical costs for the same task — by name, project, and build variant — over the past week. If no matching task history exists within the past week, predicted cost is not available.
 
-The `predicted_cost` field is returned on the task, version, and patch endpoints. On a version or patch, it represents the sum of predicted costs across all tasks in that version.
+The `predicted_cost` field is returned on the task, version, and patch endpoints. On a version or patch, it represents the sum of predicted costs across all tasks. On patches, it also includes predicted costs for child patches.
 
 Once tasks finish, the actual cost is calculated and stored separately. Predicted cost is not updated after tasks complete — it always reflects the pre-run estimate, not the final actual total.
 
 ## How can I view cost data via the REST API?
 
-Cost fields are returned on the task, version, and patch endpoints. For full authentication and usage details, see the [REST API documentation](../API/REST-V2-Usage).
+Cost fields are returned on the task, version, and patch endpoints. Discounted fields are prefixed `adjusted_` (for example, `adjusted_ec2_cost`). `on_demand_ec2_cost` is also returned as the undiscounted EC2 rate. EBS and S3 `on_demand_` equivalents are not returned by the API but are available in the Honeycomb cost breakdown.
 
-Discounted fields are prefixed `adjusted_` (for example, `adjusted_ec2_cost`).
-
-**Task** — returns `task_cost` (discounted costs broken down by category) and `predicted_task_cost`. `s3_usage` is also returned, containing the raw S3 upload metrics (PUT request counts and upload bytes) that Evergreen uses to calculate the S3 cost components in `task_cost`.
+**Task** — returns `task_cost` (discounted costs broken down by category) and `predicted_task_cost`. Also returns `s3_usage`, which contains the raw S3 upload metrics (PUT request counts and upload bytes) that Evergreen uses to calculate the S3 cost components in `task_cost`.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/tasks/{task_id}
@@ -162,7 +157,7 @@ GET https://evergreen.mongodb.com/rest/v2/tasks/{task_id}
 GET https://evergreen.mongodb.com/rest/v2/versions/{version_id}
 ```
 
-**Patch** — returns `cost` (aggregated discounted cost for the patch's own tasks), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics for the patch's own tasks; child patch S3 usage is not included). Child patch costs are not included — see [Child patch costs](#child-patch-costs) for how to aggregate them. The [patch](../Reference/Glossary#patch-build) ID and version ID are the same value — both endpoints accept the same ID and return the same cost total.
+**Patch** — returns `cost` (aggregated discounted cost for the patch's own tasks), `predicted_cost` (including child patch predicted costs), and `s3_usage` (aggregated artifact and log upload metrics for the patch's own tasks). Child patch actual costs and S3 usage are not rolled up — see [Child patch costs](#child-patch-costs) for how to aggregate them. The [patch](../Reference/Glossary#patch-build) ID and version ID are the same value — both endpoints accept the same ID and return the same cost total.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/patches/{patch_id}
