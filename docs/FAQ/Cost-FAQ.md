@@ -2,48 +2,50 @@
 
 Evergreen tracks the infrastructure cost of every task across three categories:
 
-- **EC2** — the virtual machine that runs the task. Cost is based on instance type and how long the task runs.
+- **EC2** — the machine that runs the task. Cost is based on instance type and how long the task runs.
 - **EBS** — the disk attached to the EC2 instance. GP3 volumes can be provisioned with higher throughput than the 125 MB/s free tier; the throughput cost above that baseline and the storage cost for the volume are both tracked.
 - **S3** — object storage where task artifacts and logs are uploaded. Both the upload requests (PUT costs) and the ongoing storage are tracked.
 
-All costs displayed in Evergreen have applicable discounts applied. Discount rates are configured by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps) and set in Evergreen's admin settings. Non-discounted list-price values are also available for each cost field via the REST API — see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
+All costs displayed in Evergreen have applicable discounts applied. Discount rates, the finance formula, and other cost parameters are maintained by the Financial Planning and Analysis (FP&A) team and configured in Evergreen's admin settings.
+
+Cost information is shown on the task, version, and patch pages in the Evergreen UI — a predicted estimate is shown while tasks are running, with a full cost breakdown available once they complete. The breakdown includes a link to Honeycomb for deeper per-component analysis. Cost data is also available programmatically via the REST API — see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
 
 ## What cost fields does Evergreen track?
 
-Cost is tracked at the task level and rolls up to the version and patch level once all tasks finish.
+Cost is tracked at the task level and rolls up to the version and patch level as tasks finish.
 
 **Task-level fields:**
 
-| Category | Description                                                         |
-| -------- | ------------------------------------------------------------------- |
-| EC2      | Runtime cost with discounts applied                                 |
-| EBS      | Throughput cost above the 125 MB/s free tier, with discount applied |
-| EBS      | Storage cost for the attached volume, with discount applied         |
-| S3       | PUT request cost for uploading user artifacts                       |
-| S3       | Storage cost for uploaded artifacts over their retention period     |
-| S3       | PUT request cost for uploading task log chunks                      |
-| S3       | Storage cost for uploaded logs over their retention period          |
+| Category | Subcategory      | Description                                                     |
+| -------- | ---------------- | --------------------------------------------------------------- |
+| EC2      |                  | Runtime cost with discounts applied                             |
+| EBS      | Throughput       | Cost above the 125 MB/s free tier, with discount applied        |
+| EBS      | Storage          | Cost for the attached volume, with discount applied             |
+| S3       | Artifact PUT     | PUT request cost for uploading user artifacts                   |
+| S3       | Artifact storage | Storage cost for uploaded artifacts over their retention period |
+| S3       | Log PUT          | PUT request cost for uploading task logs                        |
+| S3       | Log storage      | Storage cost for uploaded logs over their retention period      |
 
-All values reflect discounted costs. For field names, non-discounted list-price equivalents, and the full cost breakdown, see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
+All values reflect discounted costs. For field names and the full cost breakdown, see [How can I view cost data via the REST API?](#how-can-i-view-cost-data-via-the-rest-api).
 
 **Version-level fields:**
 
-The version aggregates costs across all its tasks once they finish. For patch-triggered versions (such as PR patches), child patches run as separate versions and their costs are included in the parent version's cost total.
+The version aggregates costs across all its tasks as they finish. For patch-triggered versions, child patches run as separate versions with their own independent cost tracking — see [Child patch costs](#child-patch-costs).
 
-A predicted cost estimate is also available on the task, version, and patch while tasks are still running — see [How is predicted cost calculated?](#how-is-predicted-cost-calculated).
+**Predicted cost:** An estimate is available on the task, version, and patch — see [How is predicted cost calculated?](#how-is-predicted-cost-calculated).
 
 ## How is EC2 cost calculated?
 
-EC2 is the virtual machine that runs the task. The cost is calculated when the task finishes, using the task's actual runtime and the distro's pricing data.
+EC2 is the machine that runs the task. The cost is calculated when the task finishes, using the task's actual runtime and the distro's pricing data.
 
-The discounted cost blends MongoDB's AWS savings plan rate and the standard on-demand rate using a weighting factor:
+The discounted cost blends a savings plan rate and the standard on-demand rate using a weighting factor:
 
 ```text
 adjusted_cost = runtime_seconds * (finance_formula * savings_plan_rate + (1 - finance_formula) * on_demand_rate) / 3600
                                                                                                                    ^ EC2 rates are per-hour; divides to get per-second cost
 ```
 
-`finance_formula` is a ratio between 0 and 1 that controls how much of the cost is attributed to MongoDB's savings plan coverage versus the standard AWS list price. The savings plan rate and `finance_formula` are provided by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps). The on-demand rate is the standard AWS list price for the instance type.
+`finance_formula` is a ratio between 0 and 1 that controls how much of the cost is attributed to MongoDB's savings plan coverage versus the standard AWS list price. The savings plan rate and `finance_formula` are provided by the FP&A team. The on-demand rate is the standard AWS list price for the instance type.
 
 ## How is EBS cost calculated?
 
@@ -54,21 +56,21 @@ EBS is the disk attached to the EC2 instance. Two components are tracked: throug
 GP3 volumes can be provisioned with higher throughput than the 125 MB/s AWS free tier. Only the throughput above that baseline is billable. If a distro has no GP3 mount points, or all volumes are at or below 125 MB/s, the throughput cost is zero.
 
 ```text
-billable_throughput = total_gp3_throughput_MBps - 125
-adjusted_ebs_throughput_cost = (billable_throughput * 0.04 / 2_592_000) * runtime_seconds * (1 - ebs_discount)
-                                                          ^ seconds in a 30-day month
+seconds_per_month            = 2_592_000  # seconds in a 30-day month
+billable_throughput           = total_gp3_throughput_MBps - 125
+adjusted_ebs_throughput_cost  = (billable_throughput * 0.04 / seconds_per_month) * runtime_seconds * (1 - ebs_discount)
 ```
 
 ### EBS storage cost
 
-Storage cost is based on the total size of all attached volumes, prorated to the task's actual runtime. If a distro has no mount points, the storage cost is zero.
+Storage cost is based on the total size of all attached volumes, prorated to the task's actual runtime.
 
 ```text
-adjusted_ebs_storage_cost = (volume_size_GB * 0.08 / 2_592_000) * runtime_seconds * (1 - ebs_discount)
-                                                    ^ seconds in a 30-day month
+seconds_per_month         = 2_592_000  # seconds in a 30-day month
+adjusted_ebs_storage_cost = (volume_size_GB * 0.08 / seconds_per_month) * runtime_seconds * (1 - ebs_discount)
 ```
 
-The EBS discount rate applies to both throughput and storage and is provided by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps).
+The EBS discount rate applies to both throughput and storage.
 
 ## How is S3 cost calculated?
 
@@ -76,7 +78,7 @@ S3 is the object storage where task artifacts and logs are uploaded. Two types o
 
 ### Artifact PUT cost
 
-Every S3 upload generates one or more PUT API requests depending on file size. Evergreen counts these requests and multiplies by the AWS S3 PUT price ($0.000005 per request), then applies an upload discount. PUT costs are calculated at the time of upload.
+Every S3 upload generates one or more PUT API requests depending on file size. Evergreen counts these requests and multiplies them by the AWS S3 PUT price, then applies an upload discount. PUT costs are calculated at the time of upload.
 
 The number of PUT requests per file:
 
@@ -84,14 +86,24 @@ The number of PUT requests per file:
 - Files 5 MB and over: 1 (initiate) + number of 5 MB parts + 1 (complete). For example, a 12 MB file uses 5 PUT requests (1 initiate + 3 parts + 1 complete).
 
 ```text
-adjusted_s3_artifact_put_cost = artifact_put_requests * 0.000005 * (1 - upload_cost_discount)
+s3_put_price                  = 0.000005  # dollars per PUT request (AWS standard rate)
+adjusted_s3_artifact_put_cost = artifact_put_requests * s3_put_price * (1 - upload_cost_discount)
 ```
 
-The upload discount is provided by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps).
+### Log PUT cost
 
-### Artifact storage cost
+Task logs are uploaded to S3 as the task runs; each upload uses a single PUT request. The cost uses the same rate and discount as artifact PUT costs and is calculated as logs are uploaded.
 
-Storage cost uses S3 Intelligent Tiering pricing, which transitions objects through three tiers based on their retention period. Storage cost is calculated when the task finishes, using the bucket's lifecycle rule to determine how long the artifacts will be retained.
+```text
+s3_put_price             = 0.000005  # dollars per PUT request (AWS standard rate)
+adjusted_s3_log_put_cost = log_put_requests * s3_put_price * (1 - upload_cost_discount)
+```
+
+### Storage cost
+
+Storage cost uses S3 Intelligent Tiering pricing, which transitions objects through three tiers based on their access patterns. Storage cost is calculated when the task finishes, using the bucket's lifecycle rule to determine how long the uploaded files will be retained. To simplify the cost calculations, Evergreen starts counting tier days from the day the objects are uploaded.
+
+The same formula applies to both artifact and log storage, using the respective upload bytes and each bucket's own lifecycle rule.
 
 | Tier              | Days  | Price per GB-month |
 | ----------------- | ----- | ------------------ |
@@ -99,42 +111,36 @@ Storage cost uses S3 Intelligent Tiering pricing, which transitions objects thro
 | Infrequent Access | 30–90 | $0.0125            |
 | Archive           | 90+   | $0.004             |
 
-The retention period is read from the bucket's S3 lifecycle rule (when possible). An S3 lifecycle rule is an AWS policy that defines how long objects are retained before being deleted or transitioned to a cheaper storage tier. If no lifecycle rule is found, the `default_max_artifact_expiration_days` admin setting is used as a fallback — this is a global default configured by the Evergreen admin team. If neither is available, storage cost is not calculated. Discount rates for each storage tier are provided by the [BizOps team](https://wiki.corp.mongodb.com/spaces/ADS/pages/143691615/Business+Operations+Team+BizOps).
+The retention period is read from the bucket's S3 lifecycle rule. If no lifecycle rule is found, Evergreen falls back to a system default retention period. Costs are only calculated for DevProd-owned buckets.
+
+:::note
+
+Buckets without lifecycle rules are monitored — bucket owners are notified to add one.
+
+:::
 
 ```text
-days_in_standard = min(expiration_days, 30)
-days_in_ia       = max(0, min(expiration_days, 90) - 30)
-days_in_archive  = max(0, expiration_days - 90)
+size_gb          = upload_bytes / 1_073_741_824  # bytes to GB
+days_in_standard = min(retention_days, 30)
+days_in_ia       = max(0, min(retention_days, 90) - 30)
+days_in_archive  = max(0, retention_days - 90)
 
-adjusted_s3_artifact_storage_cost = upload_bytes / GB / 30
-    * (days_in_standard * 0.023  * (1 - standard_storage_cost_discount))
-    + (days_in_ia       * 0.0125 * (1 - i_a_storage_cost_discount))
-    + (days_in_archive  * 0.004  * (1 - archive_storage_cost_discount))
+adjusted_s3_storage_cost = size_gb * (
+    (days_in_standard / 30) * 0.023  * (1 - standard_storage_discount) +
+    (days_in_ia       / 30) * 0.0125 * (1 - ia_storage_discount)       +
+    (days_in_archive  / 30) * 0.004  * (1 - archive_storage_discount)
+)
 ```
-
-`upload_bytes / GB` converts bytes to gigabytes; `/ 30` converts the per-month tier price to a per-day rate.
-
-### Log PUT cost
-
-Task logs are uploaded to S3 in chunks as the task runs; each chunk uses a single PUT request. The cost uses the same rate and discount as artifact PUT costs and is calculated as logs are uploaded.
-
-```text
-adjusted_s3_log_put_cost = log_put_requests * 0.000005 * (1 - upload_cost_discount)
-```
-
-### Log storage cost
-
-Task logs are stored in a separate S3 bucket from artifacts. Log storage uses the same Intelligent Tiering formula as artifact storage, applied to the uploaded log bytes and the log bucket's lifecycle rule. Log storage cost is calculated when the task finishes.
 
 ### When are S3 costs calculated?
 
-Artifact PUT costs are only calculated if the task uploaded files via `s3.put`. Log PUT costs are incurred whenever a task produces logs. S3 storage costs require either a resolvable lifecycle rule for the bucket or a configured `default_max_artifact_expiration_days` admin setting. If neither is available, storage cost is not calculated.
+S3 PUT costs are only calculated if the task uploaded files.
 
 ## How is predicted cost calculated?
 
-Predicted cost is an estimate of the total task cost before a task finishes, covering all cost categories (EC2, EBS, and S3). It is computed by averaging the actual costs for the same task — by name, project, and build variant — over the past week. If no matching task history exists within the past week, predicted cost is not available.
+Predicted cost is an estimate of what the cost will be for a task, covering all cost categories (EC2, EBS, and S3). It is computed by averaging the historical costs for the same task — by name, project, and build variant — over the past week. If no matching task history exists within the past week, predicted cost is not available.
 
-Predicted cost is available on the task, version, and patch endpoints while tasks are running. On a version or patch, it represents the sum of predicted costs across all tasks. On a patch, it also includes predicted costs from child patches.
+The `predicted_cost` field is returned on the task, version, and patch endpoints. On a version or patch, it represents the sum of predicted costs across all tasks in that version.
 
 Once tasks finish, the actual cost is calculated and stored separately. Predicted cost is not updated after tasks complete — it always reflects the pre-run estimate, not the final actual total.
 
@@ -142,24 +148,40 @@ Once tasks finish, the actual cost is calculated and stored separately. Predicte
 
 Cost fields are returned on the task, version, and patch endpoints. For full authentication and usage details, see the [REST API documentation](../API/REST-V2-Usage).
 
-Discounted fields are prefixed `adjusted_` and non-discounted list-price fields are prefixed `on_demand_` (for example, `adjusted_ec2_cost` and `on_demand_ec2_cost`).
+Discounted fields are prefixed `adjusted_` (for example, `adjusted_ec2_cost`).
 
-**Task** — returns `task_cost` (discounted costs broken down by category) and `predicted_task_cost`. Also returns `s3_usage`, which contains the raw S3 upload metrics (PUT request counts and upload bytes) that Evergreen uses as inputs to calculate the S3 cost components in `task_cost`.
+**Task** — returns `task_cost` (discounted costs broken down by category) and `predicted_task_cost`. `s3_usage` is also returned, containing the raw S3 upload metrics (PUT request counts and upload bytes) that Evergreen uses to calculate the S3 cost components in `task_cost`.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/tasks/{task_id}
 ```
 
-**Version** — returns `cost` (aggregated discounted cost across all tasks, including child patch costs), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics across all tasks). `cost` is only populated once all tasks have finished running.
+**Version** — returns `cost` (aggregated discounted cost across all tasks in the version), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics across all tasks). `cost` accumulates as tasks finish and reflects the total cost of all completed tasks so far. Child patch costs are not included — see [Child patch costs](#child-patch-costs).
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/versions/{version_id}
 ```
 
-**Patch** — returns `cost` (aggregated discounted cost including child patch costs), `predicted_cost` (including child patch predicted costs), and `s3_usage` (aggregated artifact and log upload metrics). The `cost` object also includes `child_patches_total_cost`, which breaks out how much of the total came from child patches versus the parent — use this endpoint when you need that breakdown. The [patch](../Reference/Glossary#patch-build) ID and version ID are the same value — both endpoints accept the same ID and return the same cost total.
+**Patch** — returns `cost` (aggregated discounted cost for the patch's own tasks), `predicted_cost`, and `s3_usage` (aggregated artifact and log upload metrics for the patch's own tasks; child patch S3 usage is not included). Child patch costs are not included — see [Child patch costs](#child-patch-costs) for how to aggregate them. The [patch](../Reference/Glossary#patch-build) ID and version ID are the same value — both endpoints accept the same ID and return the same cost total.
 
 ```text
 GET https://evergreen.mongodb.com/rest/v2/patches/{patch_id}
 ```
 
-All endpoints require authentication. For full details, see the [REST API documentation](../API/REST-V2-Usage).
+### Child patch costs
+
+For patch-triggered builds that spawn child patches (for example, cross-repo PR patches), each child patch runs as a separate version. The REST API returns costs for each entity's own tasks only — child patch costs are **not** rolled up into the parent.
+
+**What the Evergreen UI shows:** The UI aggregates child patch costs and displays a combined total across the parent and all children.
+
+**What the REST API returns:** Each endpoint returns costs for that entity's own tasks only. To get the full total across a parent patch and all its children:
+
+1. Query the parent patch endpoint — the response includes child patches under `child_patches`.
+2. Extract each child's ID from `child_patches[].patch_id`.
+3. Query each child patch endpoint and sum the `cost` fields yourself.
+
+```text
+GET /rest/v2/patches/{parent_patch_id}   → includes child_patches[].patch_id for each child
+GET /rest/v2/patches/{child_patch_id_1}  → child cost
+GET /rest/v2/patches/{child_patch_id_2}  → child cost
+```
