@@ -35,7 +35,7 @@ func TestMergeQueueCompletionMetricsFallbackJobSkipsPatchFinishedLessThan5MinAgo
 	assert.Empty(t, updated.MergeQueueMetricsEmitStatus)
 }
 
-func TestMergeQueueCompletionMetricsFallbackJobSkipsUnparsablePRNumber(t *testing.T) {
+func TestMergeQueueCompletionMetricsFallbackJobSkipsWhenGitHubPRFetchFails(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.ClearCollections(patch.Collection)) })
 
 	p := patch.Patch{

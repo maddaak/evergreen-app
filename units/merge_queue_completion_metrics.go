@@ -80,7 +80,15 @@ func (j *mergeQueueCompletionMetricsFallbackJob) Run(ctx context.Context) {
 
 func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(ctx context.Context, p *patch.Patch) {
 	_, collectiveFinishTime, err := p.GetCollectiveTimes(ctx)
-	if err != nil || collectiveFinishTime.IsZero() || time.Since(collectiveFinishTime) < 5*time.Minute {
+	if err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not get collective times for merge queue patch",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
+		return
+	}
+	if collectiveFinishTime.IsZero() || time.Since(collectiveFinishTime) < 5*time.Minute {
 		return
 	}
 

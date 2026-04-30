@@ -1951,6 +1951,11 @@ func EmitMergeQueueCompletionMetricsFromWebhook(ctx context.Context, updatedPatc
 		if err != nil || !claimed {
 			continue
 		}
+		// Re-fetch after claiming to use the most up-to-date patch data (p may be stale from the initial query).
+		p, err = patch.FindOneId(ctx, p.Id.Hex())
+		if err != nil || p == nil {
+			continue
+		}
 		v, err := VersionFindOneId(ctx, p.Version)
 		if err != nil || v == nil {
 			_ = patch.SetMergeQueueMetricsEmitStatus(ctx, p.Id, patch.MergeQueueMetricsEmitStatusFailed)

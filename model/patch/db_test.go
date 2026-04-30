@@ -884,7 +884,15 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		CreateTime:                  now,
 		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusSuccess,
 	}
-	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted))
+	failedEmit := Patch{
+		Id:                          bson.NewObjectId(),
+		Project:                     projectID,
+		Alias:                       evergreen.CommitQueueAlias,
+		Status:                      evergreen.VersionSucceeded,
+		CreateTime:                  now,
+		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusFailed,
+	}
+	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted, failedEmit))
 
 	patches, err := FindMergeQueuePatchesMissingCompletionMetrics(t.Context(), projectID)
 	require.NoError(t, err)

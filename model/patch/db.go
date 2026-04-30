@@ -559,21 +559,13 @@ func FindMergeQueuePatchesByProject(ctx context.Context, projectID string) ([]Pa
 func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
 	timeThreshold := time.Now().Add(-24 * time.Hour)
 
-	query := bson.M{
-		ProjectKey: projectID,
-		AliasKey:   evergreen.CommitQueueAlias,
-		StatusKey: bson.M{
-			"$in": []string{evergreen.VersionSucceeded, evergreen.VersionFailed},
-		},
-		CreateTimeKey: bson.M{
-			"$gte": timeThreshold,
-		},
-		bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey): bson.M{
-			"$exists": false,
-		},
-		MergeQueueMetricsEmitStatusKey: bson.M{
-			"$nin": []string{MergeQueueMetricsEmitStatusSuccess, MergeQueueMetricsEmitStatusFailed},
-		},
+	query := bson.D{
+		{Key: ProjectKey, Value: projectID},
+		{Key: AliasKey, Value: evergreen.CommitQueueAlias},
+		{Key: StatusKey, Value: bson.D{{Key: "$in", Value: []string{evergreen.VersionSucceeded, evergreen.VersionFailed}}}},
+		{Key: CreateTimeKey, Value: bson.D{{Key: "$gte", Value: timeThreshold}}},
+		{Key: bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey), Value: bson.D{{Key: "$exists", Value: false}}},
+		{Key: MergeQueueMetricsEmitStatusKey, Value: bson.D{{Key: "$nin", Value: []string{MergeQueueMetricsEmitStatusSuccess, MergeQueueMetricsEmitStatusFailed}}}},
 	}
 
 	return Find(ctx, db.Query(query))
@@ -719,12 +711,12 @@ func MarkMergeQueuePatchesRemovedFromQueue(ctx context.Context, org, repo, headS
 // a successful claim, callers must correct the status via SetMergeQueueMetricsEmitStatus.
 func ClaimMergeQueueMetricsEmit(ctx context.Context, patchID mgobson.ObjectId) (bool, error) {
 	info, err := UpdateAll(ctx,
-		bson.M{
-			IdKey: patchID,
-			MergeQueueMetricsEmitStatusKey: bson.M{"$nin": []string{
+		bson.D{
+			{Key: IdKey, Value: patchID},
+			{Key: MergeQueueMetricsEmitStatusKey, Value: bson.D{{Key: "$nin", Value: []string{
 				MergeQueueMetricsEmitStatusSuccess,
 				MergeQueueMetricsEmitStatusFailed,
-			}},
+			}}}},
 		},
 		bson.D{{Key: "$set", Value: bson.D{{Key: MergeQueueMetricsEmitStatusKey, Value: MergeQueueMetricsEmitStatusSuccess}}}},
 	)
