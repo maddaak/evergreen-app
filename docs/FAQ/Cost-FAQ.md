@@ -1,3 +1,3 @@
 # Cost FAQ
 
-### Coming Soon!
+## Coming Soon
