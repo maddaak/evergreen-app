@@ -729,7 +729,16 @@ func ClaimMergeQueueMetricsEmit(ctx context.Context, patchID mgobson.ObjectId) (
 // SetMergeQueueMetricsEmitStatus records the emit status of the patch_completed span for a merge queue patch.
 func SetMergeQueueMetricsEmitStatus(ctx context.Context, patchID mgobson.ObjectId, status string) error {
 	return UpdateOne(ctx,
-		bson.M{IdKey: patchID},
+		bson.D{{Key: IdKey, Value: patchID}},
 		bson.D{{Key: "$set", Value: bson.D{{Key: MergeQueueMetricsEmitStatusKey, Value: status}}}},
+	)
+}
+
+// SetRemovedFromQueueAt records the time the patch was removed from the merge queue. This is called
+// by the cron fallback path to store the GitHub-derived merge time when the destroyed webhook was missed.
+func SetRemovedFromQueueAt(ctx context.Context, patchID mgobson.ObjectId, t time.Time) error {
+	return UpdateOne(ctx,
+		bson.D{{Key: IdKey, Value: patchID}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey), Value: t}}}},
 	)
 }

@@ -130,6 +130,14 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 			"patch_id": p.Id.Hex(),
 			"job":      j.ID(),
 		}))
+		return
+	}
+	if err := patch.SetRemovedFromQueueAt(ctx, p.Id, endTime); err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message":  "could not set removed_from_queue_at after cron emission",
+			"patch_id": p.Id.Hex(),
+			"job":      j.ID(),
+		}))
 	}
 }
 
