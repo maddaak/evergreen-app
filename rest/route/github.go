@@ -133,9 +133,25 @@ func (gh *githubHookApi) Parse(ctx context.Context, r *http.Request) error {
 	return nil
 }
 
-// shouldSkipWebhook returns true if the event is from a GitHub app and the app is available for the owner/repo or,
-// the event is from webhooks and the app is not available for the owner/repo.
+// shouldSkipWebhook returns true if the event is from a GitHub app and the app
+// is available for the owner/repo or, the event is from webhooks and the app is
+// not available for the owner/repo. This deduplicates event processing for
+// repos with both the GitHub app installed and a repo webhook installed.
 func (gh *githubHookApi) shouldSkipWebhook(ctx context.Context, owner, repo string, fromApp bool) bool {
+	if gh.settings.Ui.StagingEnvironment != "" {
+		// For personal staging, only use repo webhooks and ignore GitHub app
+		// webhooks because they're more convenient.
+		//
+		// For context, it's easier to maintain personal staging if they use
+		// only repo webhooks because Evergreen devs have direct and visible
+		// control over the repo webhook configurations (via repo settings). In
+		// contrast, GitHub apps have restrictive permissions and are not
+		// directly accessible by Evergreen devs, so making changes (e.g. adding
+		// webhooks to a new repo, changing webhook configuration, debugging) is
+		// slow and difficult.
+		return fromApp
+	}
+
 	hasApp, err := githubapp.CreateGitHubAppAuth(gh.settings).IsGithubAppInstalledOnRepo(ctx, owner, repo)
 	if err != nil {
 		hasApp = false
@@ -418,10 +434,21 @@ func (gh *githubHookApi) rerunCheckRun(ctx context.Context, owner, repo string, 
 	}
 
 	// Get the project's GitHub app auth for check run operations.
-	// If this fails or the project doesn't have a GitHub app configured,
-	// the check run functions will fall back to using the internal app.
-	ghAppAuth := model.GetGitHubAppAuthForProject(ctx, taskToRestart.Project)
-
+	ghAppAuth, err := model.GetAndValidateCheckRunGitHubAppAuth(ctx, taskToRestart)
+	if err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"source":    "GitHub hook",
+			"operation": "check run",
+			"msg_id":    gh.msgID,
+			"event":     gh.eventType,
+			"owner":     owner,
+			"repo":      repo,
+			"task":      taskToRestart.Id,
+			"message":   "checkRun not updated for task",
+		}))
+		// Don't want to retry on this case, so log but return no error.
+		return nil
+	}
 	// Check run status should stay the same while task is being re-run.
 	latestExecutionForTask.Status = taskToRestart.Status
 	_, err = thirdparty.UpdateCheckRun(ctx, owner, repo, gh.settings.Api.URL, checkRun.GetID(), latestExecutionForTask, output, ghAppAuth)
