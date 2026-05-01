@@ -858,6 +858,7 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Alias:      evergreen.CommitQueueAlias,
 		Status:     evergreen.VersionSucceeded,
 		CreateTime: now,
+		FinishTime: now,
 	}
 	stillRunning := Patch{
 		Id:         bson.NewObjectId(),
@@ -872,6 +873,7 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Alias:      evergreen.CommitQueueAlias,
 		Status:     evergreen.VersionSucceeded,
 		CreateTime: now,
+		FinishTime: now,
 		GithubMergeData: thirdparty.GithubMergeGroup{
 			RemovedFromQueueAt: now.Add(-5 * time.Minute),
 		},
@@ -882,6 +884,7 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Alias:                       evergreen.CommitQueueAlias,
 		Status:                      evergreen.VersionSucceeded,
 		CreateTime:                  now,
+		FinishTime:                  now,
 		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusSuccess,
 	}
 	failedEmit := Patch{
@@ -890,6 +893,7 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 		Alias:                       evergreen.CommitQueueAlias,
 		Status:                      evergreen.VersionSucceeded,
 		CreateTime:                  now,
+		FinishTime:                  now,
 		MergeQueueMetricsEmitStatus: MergeQueueMetricsEmitStatusFailed,
 	}
 	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted, failedEmit))

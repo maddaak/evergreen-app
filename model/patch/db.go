@@ -560,13 +560,13 @@ func FindMergeQueuePatchesByProject(ctx context.Context, projectID string) ([]Pa
 // FindMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that did not receive
 // a GitHub removal webhook and have not yet had completion metrics emitted.
 func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
-	timeThreshold := time.Now().Add(-24 * time.Hour)
+	timeThreshold := time.Now().Add(-30 * time.Minute)
 
 	query := bson.D{
 		{Key: ProjectKey, Value: projectID},
 		{Key: AliasKey, Value: evergreen.CommitQueueAlias},
 		{Key: StatusKey, Value: bson.D{{Key: "$in", Value: []string{evergreen.VersionSucceeded, evergreen.VersionFailed}}}},
-		{Key: CreateTimeKey, Value: bson.D{{Key: "$gte", Value: timeThreshold}}},
+		{Key: FinishTimeKey, Value: bson.D{{Key: "$gte", Value: timeThreshold}}},
 		{Key: bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey), Value: bson.D{{Key: "$exists", Value: false}}},
 		{Key: MergeQueueMetricsEmitStatusKey, Value: bson.D{{Key: "$nin", Value: []string{MergeQueueMetricsEmitStatusSuccess, MergeQueueMetricsEmitStatusFailed}}}},
 	}
