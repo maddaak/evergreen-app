@@ -56,7 +56,7 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 	if err != nil {
 		grip.Error(ctx, message.WrapError(err, message.Fields{
 			"message": "error finding projects with merge queue enabled",
-			"job":     j.ID(),
+			"job_id":  j.ID(),
 		}))
 		j.AddError(errors.Wrap(err, "finding projects with merge queue enabled"))
 		return

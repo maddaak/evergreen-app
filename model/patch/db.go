@@ -24,6 +24,9 @@ import (
 const (
 	Collection   = "patches"
 	GridFSPrefix = "patchfiles"
+
+	MergeQueueMetricsEmitStatusSuccess = "success"
+	MergeQueueMetricsEmitStatusFailed  = "failed"
 )
 
 // BSON fields for the patches

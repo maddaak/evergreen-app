@@ -51,8 +51,6 @@ const (
 	MergeQueueAttrEndTimeSource                   = "evergreen.merge_queue.end_time_source"
 	MergeQueueAttrGitRefNotFound                  = "evergreen.merge_queue.git_ref_not_found"
 	MergeQueueAttrInvalidatedByUpstream           = "evergreen.merge_queue.invalidated_by_upstream"
-	MergeQueueMetricsEmitStatusSuccess            = "success"
-	MergeQueueMetricsEmitStatusFailed             = "failed"
 	MergeQueueEndTimeSourceGitHubWebhookDestroyed = "evergreen.merge_queue.github_webhook_destroyed"
 	MergeQueueEndTimeSourceGitHubPRAPI            = "evergreen.merge_queue.github_pr_api"
 	MergeQueueEndTimeSourceGitHubPRClosed         = "evergreen.merge_queue.github_pr_closed"
