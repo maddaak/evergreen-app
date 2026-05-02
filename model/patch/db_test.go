@@ -846,7 +846,7 @@ func TestClaimMergeQueueMetricsEmitFailsWhenAlreadyFailed(t *testing.T) {
 	assert.False(t, claimed)
 }
 
-func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches(t *testing.T) {
+func TestFindFinalizedMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.ClearCollections(Collection)) })
 
 	projectID := "my-project"
@@ -898,7 +898,7 @@ func TestFindMergeQueuePatchesMissingCompletionMetricsExcludesNonEligiblePatches
 	}
 	require.NoError(t, db.InsertMany(t.Context(), Collection, eligible, stillRunning, webhookReceived, alreadyEmitted, failedEmit))
 
-	patches, err := FindMergeQueuePatchesMissingCompletionMetrics(t.Context(), projectID)
+	patches, err := FindFinalizedMergeQueuePatchesMissingCompletionMetrics(t.Context(), projectID)
 	require.NoError(t, err)
 	require.Len(t, patches, 1)
 	assert.Equal(t, eligible.Id, patches[0].Id)

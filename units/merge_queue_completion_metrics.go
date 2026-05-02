@@ -62,7 +62,7 @@ func (j *mergeQueueCompletionMetricsFallbackJob) Run(ctx context.Context) {
 	}
 
 	for _, projectRef := range projectRefs {
-		patches, err := patch.FindMergeQueuePatchesMissingCompletionMetrics(ctx, projectRef.Id)
+		patches, err := patch.FindFinalizedMergeQueuePatchesMissingCompletionMetrics(ctx, projectRef.Id)
 		if err != nil {
 			grip.Debug(ctx, message.WrapError(err, message.Fields{
 				"message":    "error querying merge queue patches missing completion metrics",
@@ -88,6 +88,7 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 		}))
 		return
 	}
+	// Wait 5 minutes to allow the PR status time to settle after CI and give the destroyed webhook a chance to arrive.
 	if collectiveFinishTime.IsZero() || time.Since(collectiveFinishTime) < 5*time.Minute {
 		return
 	}
@@ -109,11 +110,6 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 
 	claimed, err := patch.ClaimMergeQueueMetricsEmit(ctx, p.Id)
 	if err != nil || !claimed {
-		return
-	}
-	// Re-fetch after claiming to use the most up-to-date patch data (p may be stale from the initial query).
-	p, err = patch.FindOneId(ctx, p.Id.Hex())
-	if err != nil || p == nil {
 		return
 	}
 
@@ -146,16 +142,15 @@ func (j *mergeQueueCompletionMetricsFallbackJob) emitCompletionMetricsForPatch(c
 // should skip and retry on the next cron run.
 func mergeQueueEndTimeFromPR(pr *github.PullRequest, collectiveFinishTime time.Time) (endTime time.Time, endTimeSource string, ok bool) {
 	if pr.GetMerged() {
-		return pr.GetMergedAt().Time, patch.MergeQueueEndTimeSourceGitHubPRAPI, true
+		return pr.GetMergedAt().Time, patch.MergeQueueEndTimeSourceGitHubPolling, true
 	}
 
 	if pr.GetState() == "closed" {
-		// PR was closed without merging. Use the later of the GitHub close time and the
-		// Evergreen collective finish time, since a user may have removed the PR from the
-		// queue after Evergreen tasks completed.
+		// Once GitHub closes the PR, its time in the merge queue is done regardless of
+		// when Evergreen tasks finished.
 		closedAt := pr.GetClosedAt().Time
-		if !closedAt.IsZero() && closedAt.After(collectiveFinishTime) {
-			return closedAt, patch.MergeQueueEndTimeSourceGitHubPRClosed, true
+		if !closedAt.IsZero() {
+			return closedAt, patch.MergeQueueEndTimeSourceGitHubPolling, true
 		}
 		return collectiveFinishTime, patch.MergeQueueEndTimeSourceCollectiveFinish, true
 	}

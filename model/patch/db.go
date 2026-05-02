@@ -557,9 +557,9 @@ func FindMergeQueuePatchesByProject(ctx context.Context, projectID string) ([]Pa
 	return Find(ctx, db.Query(query))
 }
 
-// FindMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that did not receive
+// FindFinalizedMergeQueuePatchesMissingCompletionMetrics returns finalized merge queue patches that did not receive
 // a GitHub removal webhook and have not yet had completion metrics emitted.
-func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
+func FindFinalizedMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectID string) ([]Patch, error) {
 	timeThreshold := time.Now().Add(-30 * time.Minute)
 
 	query := bson.D{
@@ -568,7 +568,7 @@ func FindMergeQueuePatchesMissingCompletionMetrics(ctx context.Context, projectI
 		{Key: StatusKey, Value: bson.D{{Key: "$in", Value: []string{evergreen.VersionSucceeded, evergreen.VersionFailed}}}},
 		{Key: FinishTimeKey, Value: bson.D{{Key: "$gte", Value: timeThreshold}}},
 		{Key: bsonutil.GetDottedKeyName(GithubMergeDataKey, githubMergeGroupRemovedFromQueueAtKey), Value: bson.D{{Key: "$exists", Value: false}}},
-		{Key: MergeQueueMetricsEmitStatusKey, Value: bson.D{{Key: "$nin", Value: []string{MergeQueueMetricsEmitStatusSuccess, MergeQueueMetricsEmitStatusFailed}}}},
+		{Key: MergeQueueMetricsEmitStatusKey, Value: bson.D{{Key: "$nin", Value: []string{MergeQueueMetricsEmitStatusSuccess}}}},
 	}
 
 	return Find(ctx, db.Query(query))
