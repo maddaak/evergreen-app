@@ -92,10 +92,10 @@ func TestMergeQueueEndTimeFromPRMergedUsesMergedAt(t *testing.T) {
 	endTime, source, ok := mergeQueueEndTimeFromPR(pr, collectiveFinishTime)
 	require.True(t, ok)
 	assert.Equal(t, mergedAt, endTime)
-	assert.Equal(t, patch.MergeQueueEndTimeSourceGitHubPRAPI, source)
+	assert.Equal(t, patch.MergeQueueEndTimeSourceGitHubPolling, source)
 }
 
-func TestMergeQueueEndTimeFromPRClosedNotMergedUsesClosedAtWhenLater(t *testing.T) {
+func TestMergeQueueEndTimeFromPRClosedNotMergedUsesClosedAt(t *testing.T) {
 	closedAt := time.Now().Add(-5 * time.Minute)
 	collectiveFinishTime := time.Now().Add(-15 * time.Minute)
 
@@ -107,17 +107,15 @@ func TestMergeQueueEndTimeFromPRClosedNotMergedUsesClosedAtWhenLater(t *testing.
 	endTime, source, ok := mergeQueueEndTimeFromPR(pr, collectiveFinishTime)
 	require.True(t, ok)
 	assert.Equal(t, closedAt, endTime)
-	assert.Equal(t, patch.MergeQueueEndTimeSourceGitHubPRClosed, source)
+	assert.Equal(t, patch.MergeQueueEndTimeSourceGitHubPolling, source)
 }
 
-func TestMergeQueueEndTimeFromPRClosedNotMergedUsesCollectiveFinishWhenLater(t *testing.T) {
-	closedAt := time.Now().Add(-15 * time.Minute)
+func TestMergeQueueEndTimeFromPRClosedNotMergedWithZeroClosedAtUsesCollectiveFinish(t *testing.T) {
 	collectiveFinishTime := time.Now().Add(-5 * time.Minute)
 
 	merged := false
 	state := "closed"
-	ts := github.Timestamp{Time: closedAt}
-	pr := &github.PullRequest{Merged: &merged, State: &state, ClosedAt: &ts}
+	pr := &github.PullRequest{Merged: &merged, State: &state}
 
 	endTime, source, ok := mergeQueueEndTimeFromPR(pr, collectiveFinishTime)
 	require.True(t, ok)
