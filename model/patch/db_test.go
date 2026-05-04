@@ -900,6 +900,8 @@ func TestFindFinalizedMergeQueuePatchesMissingCompletionMetricsExcludesNonEligib
 
 	patches, err := FindFinalizedMergeQueuePatchesMissingCompletionMetrics(t.Context(), projectID)
 	require.NoError(t, err)
-	require.Len(t, patches, 1)
-	assert.Equal(t, eligible.Id, patches[0].Id)
+	require.Len(t, patches, 2)
+	patchIDs := []bson.ObjectId{patches[0].Id, patches[1].Id}
+	assert.Contains(t, patchIDs, eligible.Id)
+	assert.Contains(t, patchIDs, failedEmit.Id)
 }
