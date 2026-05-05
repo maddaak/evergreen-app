@@ -1739,6 +1739,13 @@ type mergeQueueTaskMetrics struct {
 	hasTimeoutFailure bool
 	slowestTask       *task.Task
 	slowestDuration   time.Duration
+
+	schedulingWaitTotal time.Duration
+	schedulingWaitMax   time.Duration
+	schedulingWaitCount int
+	depsWaitTotal       time.Duration
+	depsWaitMax         time.Duration
+	depsWaitCount       int
 }
 
 // gatherMergeQueueTaskMetrics analyzes tasks and collects metrics for merge queue completion.
@@ -1781,6 +1788,24 @@ func gatherMergeQueueTaskMetrics(tasks []task.Task) mergeQueueTaskMetrics {
 				metrics.slowestTask = t
 				metrics.slowestDuration = duration
 			}
+		}
+
+		if !utility.IsZeroTime(t.ActivatedTime) && !utility.IsZeroTime(t.ScheduledTime) {
+			schedulingWait := t.ScheduledTime.Sub(t.ActivatedTime)
+			metrics.schedulingWaitTotal += schedulingWait
+			if schedulingWait > metrics.schedulingWaitMax {
+				metrics.schedulingWaitMax = schedulingWait
+			}
+			metrics.schedulingWaitCount++
+		}
+
+		if !utility.IsZeroTime(t.DependenciesMetTime) && !utility.IsZeroTime(t.ScheduledTime) {
+			depsWait := t.ScheduledTime.Sub(t.DependenciesMetTime)
+			metrics.depsWaitTotal += depsWait
+			if depsWait > metrics.depsWaitMax {
+				metrics.depsWaitMax = depsWait
+			}
+			metrics.depsWaitCount++
 		}
 	}
 
@@ -1913,6 +1938,19 @@ func EmitMergeQueueCompletionMetrics(ctx context.Context, p *patch.Patch, v *Ver
 			attribute.String(patch.MergeQueueAttrSlowestTaskName, metrics.slowestTask.DisplayName),
 			attribute.Int64(patch.MergeQueueAttrSlowestTaskDurationMs, metrics.slowestDuration.Milliseconds()),
 			attribute.String(patch.MergeQueueAttrSlowestTaskVariant, metrics.slowestTask.BuildVariant),
+		)
+	}
+
+	if metrics.schedulingWaitCount > 0 {
+		span.SetAttributes(
+			attribute.Int64(patch.MergeQueueAttrAvgTimeWaitingForSchedulingMs, (metrics.schedulingWaitTotal/time.Duration(metrics.schedulingWaitCount)).Milliseconds()),
+			attribute.Int64(patch.MergeQueueAttrMaxTimeWaitingForSchedulingMs, metrics.schedulingWaitMax.Milliseconds()),
+		)
+	}
+	if metrics.depsWaitCount > 0 {
+		span.SetAttributes(
+			attribute.Int64(patch.MergeQueueAttrAvgTimeWaitingForDependenciesMs, (metrics.depsWaitTotal/time.Duration(metrics.depsWaitCount)).Milliseconds()),
+			attribute.Int64(patch.MergeQueueAttrMaxTimeWaitingForDependenciesMs, metrics.depsWaitMax.Milliseconds()),
 		)
 	}
 
