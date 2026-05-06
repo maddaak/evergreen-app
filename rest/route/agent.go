@@ -796,8 +796,8 @@ func (h *reportS3UsageHandler) Run(ctx context.Context) gimlet.Responder {
 
 	var avgFilePutCost, maxFilePutCost, minFilePutCost float64
 	if t.S3Usage.Artifacts.Count > 0 && t.S3Usage.Artifacts.PutRequests > 0 {
-		costPerPut := t.TaskCost.OnDemandS3ArtifactPutCost / float64(t.S3Usage.Artifacts.PutRequests)
-		avgFilePutCost = t.TaskCost.OnDemandS3ArtifactPutCost / float64(t.S3Usage.Artifacts.Count)
+		costPerPut := t.TaskCost.AdjustedS3ArtifactPutCost / float64(t.S3Usage.Artifacts.PutRequests)
+		avgFilePutCost = t.TaskCost.AdjustedS3ArtifactPutCost / float64(t.S3Usage.Artifacts.Count)
 		maxFilePutCost = costPerPut * float64(t.S3Usage.Artifacts.ArtifactWithMaxPutRequests)
 		minFilePutCost = costPerPut * float64(t.S3Usage.Artifacts.ArtifactWithMinPutRequests)
 	}
@@ -1575,6 +1575,12 @@ func (g *createInstallationTokenForClone) Run(ctx context.Context) gimlet.Respon
 	}
 	token, err := githubapp.CreateGitHubAppAuth(g.env.Settings()).CreateCachedInstallationToken(ctx, g.owner, g.repo, lifetime, opts)
 	if err != nil {
+		if errors.Is(err, githubapp.ErrGitHubAppNotInstalled) {
+			return gimlet.MakeJSONErrorResponder(gimlet.ErrorResponse{
+				StatusCode: http.StatusNotFound,
+				Message:    fmt.Sprintf("no GitHub App installation for '%s/%s'", g.owner, g.repo),
+			})
+		}
 		return gimlet.MakeJSONInternalErrorResponder(errors.Wrapf(err, "creating installation token for '%s/%s'", g.owner, g.repo))
 	}
 	if token == "" {
