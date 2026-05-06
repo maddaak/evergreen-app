@@ -889,6 +889,10 @@ func (p *APIProjectRef) BuildFromService(ctx context.Context, projectRef model.P
 
 // DefaultUnsetBooleans is used to set booleans to their default value.
 func (pRef *APIProjectRef) DefaultUnsetBooleans() {
+	if pRef.DebugSpawnHostsDisabled == nil {
+		// DebugSpawnHostsDisabled needs to be on by default to enforce opt-in
+		pRef.DebugSpawnHostsDisabled = utility.TruePtr()
+	}
 	reflected := reflect.ValueOf(pRef).Elem()
 	recursivelyDefaultBooleans(reflected)
 }
@@ -897,7 +901,7 @@ func recursivelyDefaultBooleans(structToSet reflect.Value) {
 	var err error
 	var i int
 	defer func() {
-		grip.Error(recovery.HandlePanicWithError(recover(), err, fmt.Sprintf("panicked while recursively defaulting booleans for field number %d", i)))
+		grip.Error(context.Background(), recovery.HandlePanicWithError(recover(), err, fmt.Sprintf("panicked while recursively defaulting booleans for field number %d", i)))
 	}()
 	falseType := reflect.TypeOf(false)
 	// Iterate through each field of the struct.

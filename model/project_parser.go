@@ -672,7 +672,7 @@ func processIntermediateProjectIncludes(ctx context.Context, intermediateProject
 
 	var yaml []byte
 	var err error
-	grip.Debug(message.Fields{
+	grip.Debug(ctx, message.Fields{
 		"message":     "retrieving included YAML file",
 		"remote_path": localOpts.RemotePath,
 		"read_from":   localOpts.ReadFileFrom,
@@ -776,7 +776,7 @@ func mergeIncludes(ctx context.Context, projectID string, intermediateProject *P
 			msg["owner"] = opts.Ref.Owner
 			msg["repo"] = opts.Ref.Repo
 		}
-		grip.Warning(message.WrapError(err, msg))
+		grip.Warning(ctx, message.WrapError(err, msg))
 	}
 	defer func() {
 		// This is a best-effort attempt to clean up the temporary git
@@ -795,7 +795,7 @@ func mergeIncludes(ctx context.Context, projectID string, intermediateProject *P
 				msg["owner"] = opts.Ref.Owner
 				msg["repo"] = opts.Ref.Repo
 			}
-			grip.Warning(message.WrapError(err, msg))
+			grip.Warning(ctx, message.WrapError(err, msg))
 		}
 	}()
 
@@ -943,7 +943,7 @@ func setupParallelGitIncludeDirs(ctx context.Context, modules ModuleList, includ
 		}
 		// If this function errored, clean up any intermediate git clone
 		// directories and worktrees that were created.
-		grip.Warning(message.WrapError(dirs.cleanup(), message.Fields{
+		grip.Warning(ctx, message.WrapError(dirs.cleanup(), message.Fields{
 			"message":            "could not clean up git clone directory after failing to set up git directories",
 			"project_id":         opts.Ref.Id,
 			"project_identifier": opts.Ref.Identifier,
@@ -1006,7 +1006,7 @@ func setupParallelGitIncludeDirs(ctx context.Context, modules ModuleList, includ
 			// When including files, there should not be any duplicate repos
 			// defined in the modules, and the modules should not use the exact
 			// same repo/branch as the project itself.
-			grip.Warning(message.Fields{
+			grip.Warning(ctx, message.Fields{
 				"message":            "trying to make multiple git clones of the same repo, skipping duplicate repo",
 				"project_id":         opts.Ref.Id,
 				"project_identifier": opts.Ref.Identifier,
@@ -1177,7 +1177,7 @@ func retrieveFile(ctx context.Context, opts GetProjectOpts) ([]byte, error) {
 		return fileContents, nil
 	default:
 		ghAppAuth, err := opts.Ref.GetGitHubAppAuthForAPI(ctx)
-		grip.Warning(message.WrapError(err, message.Fields{
+		grip.Warning(ctx, message.WrapError(err, message.Fields{
 			"message":    "errored while attempting to get GitHub app for API, will fall back to using Evergreen-internal app",
 			"project_id": opts.Ref.Id,
 		}))
@@ -1292,7 +1292,7 @@ func getFileForPatchDiff(ctx context.Context, opts GetProjectOpts) ([]byte, erro
 		return nil, errors.New("project not passed in")
 	}
 	ghAppAuth, err := opts.Ref.GetGitHubAppAuthForAPI(ctx)
-	grip.Warning(message.WrapError(err, message.Fields{
+	grip.Warning(ctx, message.WrapError(err, message.Fields{
 		"message":    "errored while attempting to get GitHub app for API, will fall back to using Evergreen-internal app",
 		"project_id": opts.Ref.Id,
 	}))
@@ -2023,4 +2023,48 @@ func evaluateRequesters(userRequesters []evergreen.UserRequester) []string {
 
 func preGeneratedParserProjectId(originalId string) string {
 	return fmt.Sprintf("%s_%s", "pre_generation", originalId)
+}
+
+// ClearParamsYAML resolves and removes the params_yaml (which is a DB-only field)
+// from all commands in the parser project. This is used when serializing the project
+// to a human-editable YAML file (e.g. for debug spawn hosts) so that only
+// the params map is present.
+func (pp *ParserProject) ClearParamsYAML() error {
+	catcher := grip.NewBasicCatcher()
+	catcher.Add(clearCommandSetParamsYAML(pp.Pre))
+	catcher.Add(clearCommandSetParamsYAML(pp.Post))
+	catcher.Add(clearCommandSetParamsYAML(pp.Timeout))
+	for _, f := range pp.Functions {
+		catcher.Add(clearCommandSetParamsYAML(f))
+	}
+	for i := range pp.Tasks {
+		for j := range pp.Tasks[i].Commands {
+			catcher.Add(pp.Tasks[i].Commands[j].resolveParams())
+			pp.Tasks[i].Commands[j].ParamsYAML = ""
+		}
+	}
+	for i := range pp.TaskGroups {
+		catcher.Add(clearCommandSetParamsYAML(pp.TaskGroups[i].SetupGroup))
+		catcher.Add(clearCommandSetParamsYAML(pp.TaskGroups[i].TeardownGroup))
+		catcher.Add(clearCommandSetParamsYAML(pp.TaskGroups[i].SetupTask))
+		catcher.Add(clearCommandSetParamsYAML(pp.TaskGroups[i].TeardownTask))
+		catcher.Add(clearCommandSetParamsYAML(pp.TaskGroups[i].Timeout))
+	}
+	return catcher.Resolve()
+}
+
+func clearCommandSetParamsYAML(cs *YAMLCommandSet) error {
+	if cs == nil {
+		return nil
+	}
+	catcher := grip.NewBasicCatcher()
+	if cs.SingleCommand != nil {
+		catcher.Add(cs.SingleCommand.resolveParams())
+		cs.SingleCommand.ParamsYAML = ""
+	}
+	for i := range cs.MultiCommand {
+		catcher.Add(cs.MultiCommand[i].resolveParams())
+		cs.MultiCommand[i].ParamsYAML = ""
+	}
+	return catcher.Resolve()
 }

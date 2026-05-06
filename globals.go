@@ -1,6 +1,7 @@
 package evergreen
 
 import (
+	"context"
 	"os"
 	"strings"
 	"time"
@@ -154,6 +155,7 @@ const (
 	TestSilentlyFailedStatus = "silentfail"
 	TestSkippedStatus        = "skip"
 	TestSucceededStatus      = "pass"
+	TestTimedOutStatus       = "timeout"
 
 	BuildStarted   = "started"
 	BuildCreated   = "created"
@@ -188,8 +190,6 @@ const (
 	NumTasksForLargePatch = 10000
 
 	DefaultEvergreenConfig = ".evergreen.yml"
-
-	WhyIsMyDataMissingName = "whyIsTheDataMissing.txt"
 
 	// Env vars
 	EvergreenHome           = "EVGHOME"
@@ -258,7 +258,6 @@ const (
 	TempSetupScriptName           = "setup-temp.sh"
 	PowerShellSetupScriptName     = "setup.ps1"
 	PowerShellTempSetupScriptName = "setup-temp.ps1"
-	SpawnhostFetchScriptName      = ".evergreen-spawnhost-fetch.sh"
 
 	PlannerVersionTunable = "tunable"
 
@@ -294,6 +293,10 @@ const (
 	TagExpireOn          = "expire-on"
 	TagAllowRemoteAccess = "AllowRemoteAccess"
 	TagIsDebug           = "IsDebug"
+	TagTaskID            = "task-id"
+	TagTaskExecution     = "task-execution"
+	TagBuildID           = "build-id"
+	TagProject           = "project"
 
 	FinderVersionLegacy    = "legacy"
 	FinderVersionParallel  = "parallel"
@@ -502,25 +505,34 @@ const (
 	// EBS cost otel attributes — task-level (throughput)
 	TaskEBSOnDemandThroughputCostOtelAttribute = "evergreen.task.cost.ebs.on_demand_throughput_cost"
 	TaskEBSAdjustedThroughputCostOtelAttribute = "evergreen.task.cost.ebs.adjusted_throughput_cost"
+	// EBS cost otel attributes — task-level (storage)
+	TaskEBSOnDemandStorageCostOtelAttribute = "evergreen.task.cost.ebs.on_demand_storage_cost"
+	TaskEBSAdjustedStorageCostOtelAttribute = "evergreen.task.cost.ebs.adjusted_storage_cost"
 
 	// S3 cost tracking otel span name — shared by per-file and aggregate events
 	S3CostTrackingOtelSpanName = "s3-cost-tracking"
 
-	// S3 cost tracking otel attributes — artifact aggregates
-	S3ArtifactPutRequestsOtelAttribute = "evergreen.task.s3_cost.artifact_put_requests"
-	S3ArtifactUploadBytesOtelAttribute = "evergreen.task.s3_cost.artifact_upload_bytes"
-	S3ArtifactCountOtelAttribute       = "evergreen.task.s3_cost.artifact_count"
-	S3ArtifactPutCostOtelAttribute     = "evergreen.task.s3_cost.artifact_put_cost"
+	// S3 cost tracking otel attributes — task-level artifact aggregates
+	TaskS3ArtifactPutRequestsOtelAttribute         = "evergreen.task.s3_cost.artifact_put_requests"
+	TaskS3ArtifactUploadBytesOtelAttribute         = "evergreen.task.s3_cost.artifact_upload_bytes"
+	TaskS3ArtifactCountOtelAttribute               = "evergreen.task.s3_cost.artifact_count"
+	TaskOnDemandS3ArtifactPutCostOtelAttribute     = "evergreen.task.s3_cost.on_demand_artifact_put_cost"
+	TaskAdjustedS3ArtifactPutCostOtelAttribute     = "evergreen.task.s3_cost.adjusted_artifact_put_cost"
+	TaskOnDemandS3ArtifactStorageCostOtelAttribute = "evergreen.task.s3_cost.on_demand_artifact_storage_cost"
+	TaskAdjustedS3ArtifactStorageCostOtelAttribute = "evergreen.task.s3_cost.adjusted_artifact_storage_cost"
 
-	// S3 cost tracking otel attributes — artifact per-file statistics
-	S3ArtifactAvgFilePutCostOtelAttribute         = "evergreen.task.s3_cost.artifact_avg_file_put_cost"
-	S3ArtifactWithMaxPutRequestsCostOtelAttribute = "evergreen.task.s3_cost.artifact_with_max_put_requests_cost"
-	S3ArtifactWithMinPutRequestsCostOtelAttribute = "evergreen.task.s3_cost.artifact_with_min_put_requests_cost"
+	// S3 cost tracking otel attributes — task-level artifact per-file statistics
+	TaskS3ArtifactAvgFilePutCostOtelAttribute         = "evergreen.task.s3_cost.artifact_avg_file_put_cost"
+	TaskS3ArtifactWithMaxPutRequestsCostOtelAttribute = "evergreen.task.s3_cost.artifact_with_max_put_requests_cost"
+	TaskS3ArtifactWithMinPutRequestsCostOtelAttribute = "evergreen.task.s3_cost.artifact_with_min_put_requests_cost"
 
-	// S3 cost tracking otel attributes — log aggregates
-	S3LogPutRequestsOtelAttribute = "evergreen.task.s3_cost.log_put_requests"
-	S3LogUploadBytesOtelAttribute = "evergreen.task.s3_cost.log_upload_bytes"
-	S3LogPutCostOtelAttribute     = "evergreen.task.s3_cost.log_put_cost"
+	// S3 cost tracking otel attributes — task-level log aggregates
+	TaskS3LogPutRequestsOtelAttribute         = "evergreen.task.s3_cost.log_put_requests"
+	TaskS3LogUploadBytesOtelAttribute         = "evergreen.task.s3_cost.log_upload_bytes"
+	TaskOnDemandS3LogPutCostOtelAttribute     = "evergreen.task.s3_cost.on_demand_log_put_cost"
+	TaskAdjustedS3LogPutCostOtelAttribute     = "evergreen.task.s3_cost.adjusted_log_put_cost"
+	TaskOnDemandS3LogStorageCostOtelAttribute = "evergreen.task.s3_cost.on_demand_log_storage_cost"
+	TaskAdjustedS3LogStorageCostOtelAttribute = "evergreen.task.s3_cost.adjusted_log_storage_cost"
 
 	// display task otel attributes
 	DisplayTaskIDOtelAttribute   = "evergreen.display_task.id"
@@ -535,6 +547,7 @@ const (
 	VersionFinishTimeOtelAttribute            = "evergreen.version.finish_time"
 	VersionAuthorOtelAttribute                = "evergreen.version.author"
 	VersionBranchOtelAttribute                = "evergreen.version.branch"
+	VersionHighestExecutionTaskOtelAttribute  = "evergreen.version.highest_execution_task"
 	VersionMakespanSecondsOtelAttribute       = "evergreen.version.makespan_seconds"
 	VersionTimeTakenSecondsOtelAttribute      = "evergreen.version.time_taken_seconds"
 	VersionPRNumOtelAttribute                 = "evergreen.version.pr_num"
@@ -543,6 +556,33 @@ const (
 	VersionAdjustedCostOtelAttribute          = "evergreen.version.adjusted_cost"
 	VersionPredictedOnDemandCostOtelAttribute = "evergreen.version.predicted_on_demand_cost"
 	VersionPredictedAdjustedCostOtelAttribute = "evergreen.version.predicted_adjusted_cost"
+
+	// EBS cost otel attributes — version-level (throughput)
+	VersionEBSOnDemandThroughputCostOtelAttribute = "evergreen.version.cost.ebs.on_demand_throughput_cost"
+	VersionEBSAdjustedThroughputCostOtelAttribute = "evergreen.version.cost.ebs.adjusted_throughput_cost"
+	// EBS cost otel attributes — version-level (storage)
+	VersionEBSOnDemandStorageCostOtelAttribute = "evergreen.version.cost.ebs.on_demand_storage_cost"
+	VersionEBSAdjustedStorageCostOtelAttribute = "evergreen.version.cost.ebs.adjusted_storage_cost"
+
+	// S3 cost tracking otel attributes — version-level artifact aggregates
+	VersionS3ArtifactPutRequestsOtelAttribute         = "evergreen.version.s3_cost.artifact_put_requests"
+	VersionS3ArtifactUploadBytesOtelAttribute         = "evergreen.version.s3_cost.artifact_upload_bytes"
+	VersionS3ArtifactCountOtelAttribute               = "evergreen.version.s3_cost.artifact_count"
+	VersionOnDemandS3ArtifactPutCostOtelAttribute     = "evergreen.version.s3_cost.on_demand_artifact_put_cost"
+	VersionAdjustedS3ArtifactPutCostOtelAttribute     = "evergreen.version.s3_cost.adjusted_artifact_put_cost"
+	VersionOnDemandS3ArtifactStorageCostOtelAttribute = "evergreen.version.s3_cost.on_demand_artifact_storage_cost"
+	VersionAdjustedS3ArtifactStorageCostOtelAttribute = "evergreen.version.s3_cost.adjusted_artifact_storage_cost"
+
+	// S3 cost tracking otel attributes — version-level artifact per-file statistics
+	VersionS3ArtifactAvgFilePutCostOtelAttribute = "evergreen.version.s3_cost.artifact_avg_file_put_cost"
+
+	// S3 cost tracking otel attributes — version-level log aggregates
+	VersionS3LogPutRequestsOtelAttribute         = "evergreen.version.s3_cost.log_put_requests"
+	VersionS3LogUploadBytesOtelAttribute         = "evergreen.version.s3_cost.log_upload_bytes"
+	VersionOnDemandS3LogPutCostOtelAttribute     = "evergreen.version.s3_cost.on_demand_log_put_cost"
+	VersionAdjustedS3LogPutCostOtelAttribute     = "evergreen.version.s3_cost.adjusted_log_put_cost"
+	VersionOnDemandS3LogStorageCostOtelAttribute = "evergreen.version.s3_cost.on_demand_log_storage_cost"
+	VersionAdjustedS3LogStorageCostOtelAttribute = "evergreen.version.s3_cost.adjusted_log_storage_cost"
 
 	// patch otel attributes
 	PatchIsReconfiguredOtelAttribute = "evergreen.patch.is_reconfigured"
@@ -563,6 +603,7 @@ const (
 	HostStartedByOtelAttribute     = "evergreen.host.started_by"
 	HostNoExpirationOtelAttribute  = "evergreen.host.no_expiration"
 	HostInstanceTypeOtelAttribute  = "evergreen.host.instance_type"
+	GraphQLAIAgentOtelAttribute    = "evergreen.graphql.ai_agent"
 	AggregationNameOtelAttribute   = "db.aggregationName"
 )
 
@@ -586,20 +627,21 @@ var UserTriggeredOrigins = []string{
 }
 
 const (
-	AuthTokenCookie     = "mci-token"
-	LoginCookieTTL      = 365 * 24 * time.Hour
-	TaskHeader          = "Task-Id"
-	TaskSecretHeader    = "Task-Secret"
-	HostHeader          = "Host-Id"
-	HostSecretHeader    = "Host-Secret"
-	ContentTypeHeader   = "Content-Type"
-	ContentTypeValue    = "application/json"
-	ContentLengthHeader = "Content-Length"
-	APIUserHeader       = "Api-User"
-	APIKeyHeader        = "Api-Key"
-	SageUserHeader      = "x-authenticated-sage-user"
-	AuthorizationHeader = "Authorization"
-	EnvironmentHeader   = "X-Evergreen-Environment"
+	AuthTokenCookie      = "mci-token"
+	LoginCookieTTL       = 365 * 24 * time.Hour
+	TaskHeader           = "Task-Id"
+	TaskSecretHeader     = "Task-Secret"
+	HostHeader           = "Host-Id"
+	HostSecretHeader     = "Host-Secret"
+	ContentTypeHeader    = "Content-Type"
+	ContentTypeValue     = "application/json"
+	ContentLengthHeader  = "Content-Length"
+	APIUserHeader        = "Api-User"
+	APIKeyHeader         = "Api-Key"
+	SageUserHeader       = "x-authenticated-sage-user"
+	AuthorizationHeader  = "Authorization"
+	EnvironmentHeader    = "X-Evergreen-Environment"
+	GraphQLAIAgentHeader = "X-Graphql-Ai-Agent"
 )
 
 const (
@@ -1109,7 +1151,7 @@ func FindEvergreenHome() string {
 		return root
 	}
 
-	grip.Errorf("%s is unset", EvergreenHome)
+	grip.Errorf(context.Background(), "%s is unset", EvergreenHome)
 	return ""
 }
 
@@ -1171,10 +1213,11 @@ var (
 	SuperUserPermissionsID = "super_user"
 
 	// Admin permissions.
-	PermissionAdminSettings = "admin_settings"
-	PermissionProjectCreate = "project_create"
-	PermissionDistroCreate  = "distro_create"
-	PermissionRoleModify    = "modify_roles"
+	PermissionAdminSettings     = "admin_settings"
+	PermissionProjectCreate     = "project_create"
+	PermissionDistroCreate      = "distro_create"
+	PermissionNotificationsSend = "notifications_send"
+	PermissionRoleModify        = "modify_roles"
 	// Project permissions.
 	PermissionProjectSettings = "project_settings"
 
@@ -1200,6 +1243,10 @@ var (
 	}
 	DistroCreate = PermissionLevel{
 		Description: "Create new distros",
+		Value:       10,
+	}
+	NotificationsSend = PermissionLevel{
+		Description: "Send notifications as Evergreen",
 		Value:       10,
 	}
 	RoleModify = PermissionLevel{
@@ -1406,6 +1453,7 @@ var SuperuserPermissions = []string{
 	PermissionProjectCreate,
 	PermissionDistroCreate,
 	PermissionRoleModify,
+	PermissionNotificationsSend,
 }
 
 const (

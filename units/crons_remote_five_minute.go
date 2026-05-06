@@ -52,7 +52,7 @@ func (j *cronsRemoteFiveMinuteJob) Run(ctx context.Context) {
 		PopulateHostRestartJasperJobs(j.env),
 		PopulateGithubAPILimitJob(),
 		PopulateMergeQueueMetricsJobs(),
-		PopulateWebhookSecretMigrationJobs(),
+		PopulateMergeQueueCompletionMetricsFallbackJobs(),
 	}
 
 	queue := j.env.RemoteQueue()
@@ -66,7 +66,7 @@ func (j *cronsRemoteFiveMinuteJob) Run(ctx context.Context) {
 	}
 	j.ErrorCount = catcher.Len()
 
-	grip.Debug(message.Fields{
+	grip.Debug(ctx, message.Fields{
 		"queue": "service",
 		"id":    j.ID(),
 		"type":  j.Type().Name,

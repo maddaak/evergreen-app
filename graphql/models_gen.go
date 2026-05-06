@@ -160,9 +160,10 @@ type DistroEventsPayload struct {
 }
 
 type DistroPermissions struct {
-	Admin bool `json:"admin"`
-	Edit  bool `json:"edit"`
-	View  bool `json:"view"`
+	DistroID string `json:"distroId"`
+	Admin    bool   `json:"admin"`
+	Edit     bool   `json:"edit"`
+	View     bool   `json:"view"`
 }
 
 type DistroPermissionsOptions struct {
@@ -406,8 +407,9 @@ type ProjectEvents struct {
 }
 
 type ProjectPermissions struct {
-	Edit bool `json:"edit"`
-	View bool `json:"view"`
+	ProjectIdentifier string `json:"projectIdentifier"`
+	Edit              bool   `json:"edit"`
+	View              bool   `json:"view"`
 }
 
 type ProjectPermissionsOptions struct {
@@ -451,8 +453,9 @@ type RemoveFavoriteProjectInput struct {
 }
 
 type RepoPermissions struct {
-	Edit bool `json:"edit"`
-	View bool `json:"view"`
+	RepoID string `json:"repoId"`
+	Edit   bool   `json:"edit"`
+	View   bool   `json:"view"`
 }
 
 type RepoPermissionsOptions struct {
@@ -584,6 +587,16 @@ type TaskFilterOptions struct {
 type TaskHistory struct {
 	Tasks      []*model.APITask       `json:"tasks"`
 	Pagination *TaskHistoryPagination `json:"pagination"`
+}
+
+type TaskHistoryByCreateTime struct {
+	Tasks      []*model.APITask                   `json:"tasks"`
+	Pagination *TaskHistoryByCreateTimePagination `json:"pagination"`
+}
+
+type TaskHistoryByCreateTimePagination struct {
+	MostRecentTaskCreateTime time.Time `json:"mostRecentTaskCreateTime"`
+	OldestTaskCreateTime     time.Time `json:"oldestTaskCreateTime"`
 }
 
 type TaskHistoryOpts struct {
@@ -1226,6 +1239,10 @@ const (
 	ProjectSettingsSectionGithubAndCommitQueue ProjectSettingsSection = "GITHUB_AND_COMMIT_QUEUE"
 	ProjectSettingsSectionGithubAppSettings    ProjectSettingsSection = "GITHUB_APP_SETTINGS"
 	ProjectSettingsSectionGithubPermissions    ProjectSettingsSection = "GITHUB_PERMISSIONS"
+	ProjectSettingsSectionPullRequests         ProjectSettingsSection = "PULL_REQUESTS"
+	ProjectSettingsSectionGitTags              ProjectSettingsSection = "GIT_TAGS"
+	ProjectSettingsSectionMergeQueue           ProjectSettingsSection = "MERGE_QUEUE"
+	ProjectSettingsSectionCommitChecks         ProjectSettingsSection = "COMMIT_CHECKS"
 )
 
 var AllProjectSettingsSection = []ProjectSettingsSection{
@@ -1243,11 +1260,15 @@ var AllProjectSettingsSection = []ProjectSettingsSection{
 	ProjectSettingsSectionGithubAndCommitQueue,
 	ProjectSettingsSectionGithubAppSettings,
 	ProjectSettingsSectionGithubPermissions,
+	ProjectSettingsSectionPullRequests,
+	ProjectSettingsSectionGitTags,
+	ProjectSettingsSectionMergeQueue,
+	ProjectSettingsSectionCommitChecks,
 }
 
 func (e ProjectSettingsSection) IsValid() bool {
 	switch e {
-	case ProjectSettingsSectionGeneral, ProjectSettingsSectionAccess, ProjectSettingsSectionVariables, ProjectSettingsSectionNotifications, ProjectSettingsSectionPatchAliases, ProjectSettingsSectionWorkstation, ProjectSettingsSectionTriggers, ProjectSettingsSectionPeriodicBuilds, ProjectSettingsSectionPlugins, ProjectSettingsSectionViewsAndFilters, ProjectSettingsSectionTestSelection, ProjectSettingsSectionGithubAndCommitQueue, ProjectSettingsSectionGithubAppSettings, ProjectSettingsSectionGithubPermissions:
+	case ProjectSettingsSectionGeneral, ProjectSettingsSectionAccess, ProjectSettingsSectionVariables, ProjectSettingsSectionNotifications, ProjectSettingsSectionPatchAliases, ProjectSettingsSectionWorkstation, ProjectSettingsSectionTriggers, ProjectSettingsSectionPeriodicBuilds, ProjectSettingsSectionPlugins, ProjectSettingsSectionViewsAndFilters, ProjectSettingsSectionTestSelection, ProjectSettingsSectionGithubAndCommitQueue, ProjectSettingsSectionGithubAppSettings, ProjectSettingsSectionGithubPermissions, ProjectSettingsSectionPullRequests, ProjectSettingsSectionGitTags, ProjectSettingsSectionMergeQueue, ProjectSettingsSectionCommitChecks:
 		return true
 	}
 	return false

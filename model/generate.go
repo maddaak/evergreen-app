@@ -166,7 +166,7 @@ func (g *GeneratedProject) Save(ctx context.Context, settings *evergreen.Setting
 	g.Task = t
 
 	if g.Task.GeneratedTasks {
-		grip.Debug(message.Fields{
+		grip.Debug(ctx, message.Fields{
 			"message": "skipping attempting to update parser project because another generator marked the task complete",
 			"task":    g.Task.Id,
 			"version": g.Task.Version,
@@ -274,11 +274,18 @@ func (g *GeneratedProject) saveNewBuildsAndTasks(ctx context.Context, settings *
 
 	newTVPairs, activationInfo := g.GetNewTasksAndActivationInfo(ctx, v, p)
 
+	projectRef, err := FindMergedProjectRef(ctx, p.Identifier, v.Id, true)
+	if err != nil {
+		return errors.Wrapf(err, "finding merged project ref '%s' for version '%s'", p.Identifier, v.Id)
+	}
+	if projectRef == nil {
+		return errors.Errorf("project '%s' not found", p.Identifier)
+	}
+
 	if v.Requester == evergreen.GithubPRRequester {
 		numCheckRuns := p.GetNumCheckRunsFromTaskVariantPairs(newTVPairs)
-		checkRunLimit := settings.GitHubCheckRun.CheckRunLimit
-		if numCheckRuns > checkRunLimit {
-			return errors.Errorf("total number of checkRuns (%d) exceeds maximum limit (%d)", numCheckRuns, checkRunLimit)
+		if err := VerifyCheckRunLimit(numCheckRuns, settings.GitHubCheckRun.CheckRunLimit, projectRef.HasGitHubAppAuth(ctx)); err != nil {
+			return err
 		}
 	}
 
@@ -298,15 +305,6 @@ func (g *GeneratedProject) saveNewBuildsAndTasks(ctx context.Context, settings *
 		} else {
 			newTVPairsForNewVariants.DisplayTasks = append(newTVPairsForNewVariants.DisplayTasks, dispTask)
 		}
-	}
-
-	// This will only be populated for patches, not mainline commits.
-	projectRef, err := FindMergedProjectRef(ctx, p.Identifier, v.Id, true)
-	if err != nil {
-		return errors.Wrapf(err, "finding merged project ref '%s' for version '%s'", p.Identifier, v.Id)
-	}
-	if projectRef == nil {
-		return errors.Errorf("project '%s' not found", p.Identifier)
 	}
 
 	// Compile a lookup table of task IDs for all tasks to be created, both in
@@ -338,6 +336,7 @@ func (g *GeneratedProject) saveNewBuildsAndTasks(ctx context.Context, settings *
 		// tasks inherit that requirement.
 		ActivatedTasksAreEssentialToSucceed: g.Task.IsEssentialToSucceed,
 	}
+	// This will only be populated for patches, not mainline commits.
 	if evergreen.IsPatchRequester(v.Requester) {
 		patchDoc, err := patch.FindOneId(ctx, v.Id)
 		if err != nil {
@@ -505,7 +504,7 @@ func (g *GeneratedProject) getNewTasksWithDependencies(ctx context.Context, v *V
 
 	var err error
 	newTVPairs.ExecTasks, err = IncludeDependenciesWithGenerated(p, newTVPairs.ExecTasks, v.Requester, activationInfo, g.BuildVariants)
-	grip.Warning(message.WrapError(err, message.Fields{
+	grip.Warning(ctx, message.WrapError(err, message.Fields{
 		"message": "error including dependencies for generator",
 		"task":    g.Task.Id,
 	}))
@@ -829,15 +828,6 @@ func (g *GeneratedProject) addGeneratedProjectToConfig(intermediateProject *Pars
 		}
 	}
 	return intermediateProject, nil
-}
-
-func variantExistsInGeneratedProject(variants []parserBV, variant string) bool {
-	for bv := range variants {
-		if variants[bv].Name == variant {
-			return true
-		}
-	}
-	return false
 }
 
 // projectMaps is a struct of maps of project fields, which allows efficient comparisons of generated projects to projects.

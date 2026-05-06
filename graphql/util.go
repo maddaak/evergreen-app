@@ -82,7 +82,7 @@ func findAllTasksByIds(ctx context.Context, taskIDs ...string) ([]task.Task, err
 			foundTaskIds = append(foundTaskIds, ft.Id)
 		}
 		missingTaskIds, _ := utility.StringSliceSymmetricDifference(taskIDs, foundTaskIds)
-		grip.Error(message.Fields{
+		grip.Error(ctx, message.Fields{
 			"message":       "could not find all tasks",
 			"function":      "findAllTasksByIds",
 			"missing_tasks": missingTaskIds,
@@ -309,7 +309,7 @@ func getAPITaskFromTask(ctx context.Context, url string, task task.Task) (*restM
 
 // getTask returns the task with the given id and execution number
 func getTask(ctx context.Context, taskID string, execution *int, apiURL string) (*restModel.APITask, error) {
-	dbTask, err := task.FindOneIdAndExecutionWithDisplayStatus(ctx, taskID, execution)
+	dbTask, err := task.FindByIdExecution(ctx, taskID, execution)
 	if err != nil {
 		return nil, InternalServerError.Send(ctx, fmt.Sprintf("finding task '%s': %s", taskID, err.Error()))
 	}
@@ -432,7 +432,7 @@ func canRestartTask(ctx context.Context, t *task.Task) bool {
 	}
 	// It is possible to restart blocked display tasks. Later tasks in a display task could be blocked on
 	// earlier tasks in the display task, in which case restarting the entire display task may unblock them.
-	return (t.DisplayStatus == evergreen.TaskStatusBlocked && t.DisplayOnly) ||
+	return (t.GetDisplayStatus() == evergreen.TaskStatusBlocked && t.DisplayOnly) ||
 		!utility.StringSliceContains(evergreen.TaskUncompletedStatuses, t.Status)
 }
 
@@ -441,7 +441,7 @@ func canScheduleTask(ctx context.Context, t *task.Task) bool {
 	if t.IsPartOfDisplay(ctx) || t.Aborted {
 		return false
 	}
-	if t.DisplayStatus != evergreen.TaskUnscheduled {
+	if t.GetDisplayStatus() != evergreen.TaskUnscheduled {
 		return false
 	}
 	return true
@@ -565,14 +565,14 @@ func getAPIVolumeList(volumes []host.Volume) ([]*restModel.APIVolume, error) {
 func mustHaveUser(ctx context.Context) *user.DBUser {
 	u := gimlet.GetUser(ctx)
 	if u == nil {
-		grip.Error(message.Fields{
+		grip.Error(ctx, message.Fields{
 			"message": "no user attached to request expecting user",
 		})
 		return &user.DBUser{}
 	}
 	usr, valid := u.(*user.DBUser)
 	if !valid {
-		grip.Error(message.Fields{
+		grip.Error(ctx, message.Fields{
 			"message": "invalid user attached to request expecting user",
 		})
 		return &user.DBUser{}
@@ -642,6 +642,21 @@ func isPopulated(buildVariantOptions *BuildVariantOptions) bool {
 		return false
 	}
 	return len(buildVariantOptions.Tasks) > 0 || len(buildVariantOptions.Variants) > 0 || len(buildVariantOptions.Statuses) > 0
+}
+
+// getAuthorizedSettingsID returns the project/repo ID gated by @requireProjectAccess
+// (settings.Id, mapped from the projectId/repoId GraphQL argument). If the caller also
+// supplied projectRef.id and it differs from the authorized ID, returns an
+// InputValidationError — projectRef.id is not authorized and must not be used as the
+// write key. labelName is used in the error message ("projectId" or "repoId").
+func getAuthorizedSettingsID(ctx context.Context, settings *restModel.APIProjectSettings, labelName string) (string, error) {
+	authorizedID := utility.FromStringPtr(settings.Id)
+	if settings.ProjectRef.Id != nil {
+		if innerID := utility.FromStringPtr(settings.ProjectRef.Id); innerID != authorizedID {
+			return "", InputValidationError.Send(ctx, fmt.Sprintf("%s '%s' does not match projectRef.id '%s'", labelName, authorizedID, innerID))
+		}
+	}
+	return authorizedID, nil
 }
 
 func getRedactedAPIVarsForProject(ctx context.Context, projectId string) (*restModel.APIProjectVars, error) {
@@ -743,7 +758,7 @@ func groupProjects(ctx context.Context, projects []model.ProjectRef, onlyDefault
 			}
 
 			if repoRef == nil {
-				grip.Error(message.Fields{
+				grip.Error(ctx, message.Fields{
 					"message":     "repoRef not found",
 					"repo_ref_id": repoRefId,
 					"project":     project,
@@ -795,9 +810,12 @@ func bbGetCreatedTicketsPointers(ctx context.Context, taskId string) ([]*thirdpa
 		}
 	}
 	settings := evergreen.GetEnvironment().Settings()
-	jiraHandler := thirdparty.NewJiraHandler(*settings.Jira.Export())
+	jiraHandler, err := thirdparty.NewJiraHandler(*settings.Jira.Export())
+	if err != nil {
+		return nil, err
+	}
 	for _, ticket := range searchTickets {
-		jiraIssue, err := jiraHandler.GetJIRATicket(ticket)
+		jiraIssue, err := jiraHandler.GetIssue(ctx, ticket)
 		if err != nil {
 			return nil, err
 		}
@@ -836,7 +854,6 @@ func getHostRequestOptions(ctx context.Context, usr *user.DBUser, spawnHostInput
 		HomeVolumeSize:       utility.FromIntPtr(spawnHostInput.HomeVolumeSize),
 		HomeVolumeID:         utility.FromStringPtr(spawnHostInput.VolumeID),
 		Expiration:           spawnHostInput.Expiration,
-		UseOAuth:             utility.FromBoolPtr(spawnHostInput.UseOAuth),
 	}
 	if spawnHostInput.SleepSchedule != nil {
 		options.SleepScheduleOptions = host.SleepScheduleOptions{
@@ -994,6 +1011,10 @@ func convertTestSortOptions(ctx context.Context, dbTask *task.Task, opts []*Test
 }
 
 func getBaseTaskTestResultsOptions(ctx context.Context, dbTask *task.Task) ([]task.Task, error) {
+	if dbTask == nil {
+		return nil, nil
+	}
+
 	var (
 		baseTask *task.Task
 		tasks    []task.Task

@@ -45,7 +45,7 @@ func NewMergeQueueMetricsJob() amboy.Job {
 	return j
 }
 
-// Run collects and emits merge queue depth metrics for all projects with merge queue enabled.
+// Run emits merge queue depth metrics for all projects with merge queue enabled.
 func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 	defer j.MarkComplete()
 	if j.env == nil {
@@ -54,7 +54,7 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 
 	projectRefs, err := model.FindProjectRefsWithMergeQueueEnabled(ctx)
 	if err != nil {
-		grip.Error(message.WrapError(err, message.Fields{
+		grip.Error(ctx, message.WrapError(err, message.Fields{
 			"message": "error finding projects with merge queue enabled",
 			"job_id":  j.ID(),
 		}))
@@ -64,7 +64,7 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 
 	for _, projectRef := range projectRefs {
 		if err := j.emitMetricsForProject(ctx, &projectRef); err != nil {
-			grip.Error(message.WrapError(err, message.Fields{
+			grip.Error(ctx, message.WrapError(err, message.Fields{
 				"message":    "error emitting merge queue metrics for project",
 				"project_id": projectRef.Id,
 				"job":        j.ID(),
@@ -74,6 +74,7 @@ func (j *mergeQueueMetricsJob) Run(ctx context.Context) {
 	}
 }
 
+// emitMetricsForProject emits depth metrics for a project.
 func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projectRef *model.ProjectRef) error {
 	patches, err := patch.FindMergeQueuePatchesByProject(ctx, projectRef.Id)
 	if err != nil {
@@ -84,14 +85,12 @@ func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projec
 		return nil
 	}
 
-	// Group patches by queue (org/repo/base_branch combination)
 	type queueKey struct {
 		org        string
 		repo       string
 		baseBranch string
 	}
 	queuePatches := make(map[queueKey][]patch.Patch)
-
 	for i := range patches {
 		p := patches[i]
 		if p.GithubMergeData.Org == "" || p.GithubMergeData.Repo == "" || p.GithubMergeData.BaseBranch == "" {
@@ -107,7 +106,7 @@ func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projec
 
 	for key, queuePatchList := range queuePatches {
 		if err := j.emitMetricsForQueue(ctx, projectRef.Id, key.org, key.repo, key.baseBranch, queuePatchList); err != nil {
-			grip.Error(message.WrapError(err, message.Fields{
+			grip.Error(ctx, message.WrapError(err, message.Fields{
 				"message":     "error emitting metrics for queue",
 				"project_id":  projectRef.Id,
 				"org":         key.org,
@@ -115,7 +114,6 @@ func (j *mergeQueueMetricsJob) emitMetricsForProject(ctx context.Context, projec
 				"base_branch": key.baseBranch,
 			}))
 			j.AddError(err)
-			continue
 		}
 	}
 
@@ -171,7 +169,7 @@ func (j *mergeQueueMetricsJob) emitMetricsForQueue(ctx context.Context, projectI
 
 	runningTasksCount, err := task.CountRunningTasksForVersions(ctx, versionIDs)
 	if err != nil {
-		grip.Error(message.WrapError(err, message.Fields{
+		grip.Error(ctx, message.WrapError(err, message.Fields{
 			"message":     "error counting running tasks in merge queue",
 			"project_id":  projectID,
 			"org":         org,

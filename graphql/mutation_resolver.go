@@ -46,7 +46,8 @@ func (r *mutationResolver) BbCreateTicket(ctx context.Context, taskID string, ex
 	if err != nil {
 		return false, err
 	}
-	httpStatus, err := data.BbFileTicket(ctx, taskID, *execution)
+	username := mustHaveUser(ctx).Username()
+	httpStatus, err := data.BbFileTicket(ctx, taskID, *execution, username)
 	if err != nil {
 		return false, mapHTTPStatusToGqlError(ctx, httpStatus, err)
 	}
@@ -404,7 +405,10 @@ func (r *mutationResolver) SetPatchVisibility(ctx context.Context, patchIds []st
 			return nil, InternalServerError.Send(ctx, fmt.Sprintf("setting visibility for patch '%s': %s", p.Id, err.Error()))
 		}
 		apiPatch := restModel.APIPatch{}
-		err = apiPatch.BuildFromService(ctx, p, &restModel.APIPatchArgs{IncludeProjectIdentifier: true})
+		err = apiPatch.BuildFromService(ctx, p, &restModel.APIPatchArgs{
+			IncludeProjectIdentifier: true,
+			IncludeVersionCost:       true,
+		})
 		if err != nil {
 			return nil, InternalServerError.Send(ctx, fmt.Sprintf("converting patch '%s' to APIPatch: %s", p.Id, err.Error()))
 		}
@@ -531,6 +535,11 @@ func (r *mutationResolver) CopyProject(ctx context.Context, project restModel.Co
 
 	}
 	if err != nil {
+		grip.Debug(ctx, message.WrapError(err, message.Fields{
+			"message":     "project was partially copied",
+			"old_project": project.ProjectIdToCopy,
+			"new_project": project.NewProjectIdentifier,
+		}))
 		// Use AddError to bypass gqlgen restriction that data and errors cannot be returned in the same response
 		// https://github.com/99designs/gqlgen/issues/1191
 		graphql.AddError(ctx, PartialError.Send(ctx, err.Error()))
@@ -638,8 +647,11 @@ func (r *mutationResolver) PromoteVarsToRepo(ctx context.Context, opts PromoteVa
 
 // SaveProjectSettingsForSection is the resolver for the saveProjectSettingsForSection field.
 func (r *mutationResolver) SaveProjectSettingsForSection(ctx context.Context, projectSettings *restModel.APIProjectSettings, section ProjectSettingsSection) (*restModel.APIProjectSettings, error) {
-	projectId := utility.FromStringPtr(projectSettings.ProjectRef.Id)
 	usr := mustHaveUser(ctx)
+	projectId, err := getAuthorizedSettingsID(ctx, projectSettings, "projectId")
+	if err != nil {
+		return nil, err
+	}
 	changes, err := data.SaveProjectSettingsForSection(ctx, projectId, projectSettings, model.ProjectPageSection(section), false, usr.Username())
 	if err != nil {
 		return nil, InternalServerError.Send(ctx, err.Error())
@@ -649,9 +661,12 @@ func (r *mutationResolver) SaveProjectSettingsForSection(ctx context.Context, pr
 
 // SaveRepoSettingsForSection is the resolver for the saveRepoSettingsForSection field.
 func (r *mutationResolver) SaveRepoSettingsForSection(ctx context.Context, repoSettings *restModel.APIProjectSettings, section ProjectSettingsSection) (*restModel.APIProjectSettings, error) {
-	projectId := utility.FromStringPtr(repoSettings.ProjectRef.Id)
 	usr := mustHaveUser(ctx)
-	changes, err := data.SaveProjectSettingsForSection(ctx, projectId, repoSettings, model.ProjectPageSection(section), true, usr.Username())
+	repoId, err := getAuthorizedSettingsID(ctx, repoSettings, "repoId")
+	if err != nil {
+		return nil, err
+	}
+	changes, err := data.SaveProjectSettingsForSection(ctx, repoId, repoSettings, model.ProjectPageSection(section), true, usr.Username())
 	if err != nil {
 		return nil, InternalServerError.Send(ctx, err.Error())
 	}
@@ -971,7 +986,7 @@ func (r *mutationResolver) UpdateSpawnHostStatus(ctx context.Context, updateSpaw
 	if err != nil {
 		if httpStatus == http.StatusInternalServerError {
 			var parsedUrl, _ = url.Parse("/graphql/query")
-			grip.Error(message.WrapError(err, message.Fields{
+			grip.Error(ctx, message.WrapError(err, message.Fields{
 				"method":  "POST",
 				"url":     parsedUrl,
 				"code":    httpStatus,
@@ -1112,7 +1127,7 @@ func (r *mutationResolver) RestartTask(ctx context.Context, taskID string, faile
 	if err := model.ResetTaskOrDisplayTask(ctx, evergreen.GetEnvironment().Settings(), t, username, evergreen.UIPackage, failedOnly, nil); err != nil {
 		return nil, InternalServerError.Send(ctx, fmt.Sprintf("restarting task '%s': %s", taskID, err.Error()))
 	}
-	t, err = task.FindOneIdAndExecutionWithDisplayStatus(ctx, taskID, nil)
+	t, err = task.FindByIdExecution(ctx, taskID, nil)
 	if err != nil {
 		return nil, InternalServerError.Send(ctx, fmt.Sprintf("fetching task '%s': %s", taskID, err.Error()))
 	}

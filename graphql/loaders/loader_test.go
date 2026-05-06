@@ -1,4 +1,4 @@
-package graphql
+package loaders
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/user"
 	"github.com/evergreen-ci/evergreen/testutil"
-	"github.com/evergreen-ci/utility"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 func init() {
@@ -51,9 +51,9 @@ func TestGetUser(t *testing.T) {
 		result, err := GetUser(ctx, "user1")
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		assert.Equal(t, "user1", *result.UserID)
-		assert.Equal(t, "User One", *result.DisplayName)
-		assert.Equal(t, "user1@example.com", *result.EmailAddress)
+		assert.Equal(t, "user1", result.Id)
+		assert.Equal(t, "User One", result.DispName)
+		assert.Equal(t, "user1@example.com", result.EmailAddress)
 	})
 
 	t.Run("UserNotFound", func(t *testing.T) {
@@ -182,10 +182,10 @@ func TestGetVersion(t *testing.T) {
 		result, err := GetVersion(ctx, "version1")
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		assert.Equal(t, "version1", utility.FromStringPtr(result.Id))
-		assert.Equal(t, "abc123", utility.FromStringPtr(result.Revision))
-		assert.Equal(t, "user1", utility.FromStringPtr(result.Author))
-		assert.Equal(t, "First commit", utility.FromStringPtr(result.Message))
+		assert.Equal(t, "version1", result.Id)
+		assert.Equal(t, "abc123", result.Revision)
+		assert.Equal(t, "user1", result.Author)
+		assert.Equal(t, "First commit", result.Message)
 	})
 
 	t.Run("VersionNotFound", func(t *testing.T) {
@@ -275,6 +275,62 @@ func TestGetVersion(t *testing.T) {
 	})
 }
 
+func TestPreloadVersions(t *testing.T) {
+	require.NoError(t, db.Clear(model.VersionCollection))
+
+	testVersions := []model.Version{
+		{Id: "preload1", Revision: "rev1", Author: "author1"},
+		{Id: "preload2", Revision: "rev2", Author: "author2"},
+		{Id: "preload3", Revision: "rev3", Author: "author3"},
+	}
+	for _, v := range testVersions {
+		require.NoError(t, v.Insert(t.Context()))
+	}
+
+	t.Run("EmptySliceIsNoOp", func(t *testing.T) {
+		ctx := setupLoaderContext(t.Context())
+		require.NotPanics(t, func() {
+			PreloadVersions(ctx, nil)
+			PreloadVersions(ctx, []string{})
+		})
+	})
+
+	t.Run("PrimesCacheSoLaterLoadsSkipDB", func(t *testing.T) {
+		ctx := setupLoaderContext(t.Context())
+
+		PreloadVersions(ctx, []string{"preload1", "preload2", "preload3"})
+
+		// Once preloaded the values should live in the dataloader's thunk cache.
+		// Drop the underlying collection to prove subsequent GetVersion calls
+		// don't hit MongoDB.
+		require.NoError(t, db.Clear(model.VersionCollection))
+
+		for _, id := range []string{"preload1", "preload2", "preload3"} {
+			result, err := GetVersion(ctx, id)
+			require.NoError(t, err)
+			require.NotNil(t, result, "expected cached version '%s'", id)
+			assert.Equal(t, id, result.Id)
+		}
+	})
+
+	t.Run("DuplicateIDsAreDeduped", func(t *testing.T) {
+		require.NoError(t, db.Clear(model.VersionCollection))
+		for _, v := range testVersions {
+			require.NoError(t, v.Insert(t.Context()))
+		}
+
+		ctx := setupLoaderContext(t.Context())
+		require.NotPanics(t, func() {
+			PreloadVersions(ctx, []string{"preload1", "preload1", "preload2"})
+		})
+
+		result, err := GetVersion(ctx, "preload1")
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "preload1", result.Id)
+	})
+}
+
 func TestMiddleware(t *testing.T) {
 	t.Run("InjectsLoadersIntoContext", func(t *testing.T) {
 		var capturedCtx context.Context
@@ -284,7 +340,7 @@ func TestMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		wrappedHandler := DataloaderMiddleware(handler)
+		wrappedHandler := Middleware(handler)
 
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
@@ -294,22 +350,55 @@ func TestMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		// Verify loaders were injected
-		loaders := DataloaderFor(capturedCtx)
-		require.NotNil(t, loaders)
-		require.NotNil(t, loaders.UserLoader)
-		require.NotNil(t, loaders.VersionLoader)
+		l := For(capturedCtx)
+		require.NotNil(t, l)
+		require.NotNil(t, l.UserLoader)
+		require.NotNil(t, l.VersionLoader)
 	})
 }
 
-func TestNewLoaders(t *testing.T) {
-	loaders := NewLoaders()
-	require.NotNil(t, loaders)
-	require.NotNil(t, loaders.UserLoader)
-	require.NotNil(t, loaders.VersionLoader)
+func TestNew(t *testing.T) {
+	l := New()
+	require.NotNil(t, l)
+	require.NotNil(t, l.UserLoader)
+	require.NotNil(t, l.VersionLoader)
+}
+
+func TestIsBatchError(t *testing.T) {
+	t.Run("ReturnsTrueForBatchError", func(t *testing.T) {
+		err := &batchError{err: assert.AnError}
+		assert.True(t, IsBatchError(err))
+	})
+
+	t.Run("ReturnsFalseForRegularError", func(t *testing.T) {
+		assert.False(t, IsBatchError(assert.AnError))
+	})
+
+	t.Run("ReturnsFalseForNil", func(t *testing.T) {
+		assert.False(t, IsBatchError(nil))
+	})
+
+	// Resolvers wrap the dataloader error in a *gqlerror.Error before returning
+	// it to gqlgen. IsBatchError must reach through gqlerror's Unwrap so the
+	// GraphQL error presenter skips re-logging every field that shares a
+	// failed batch.
+	t.Run("ReturnsTrueThroughGqlerrorUnwrap", func(t *testing.T) {
+		batchErr := &batchError{err: assert.AnError}
+		gqlErr := &gqlerror.Error{
+			Message: "fetching version 'v1' for task 't1': some cause",
+			Err:     batchErr,
+		}
+		assert.True(t, IsBatchError(gqlErr))
+	})
+
+	t.Run("ReturnsFalseForGqlerrorWithoutCause", func(t *testing.T) {
+		gqlErr := &gqlerror.Error{Message: "fetching version 'v1': some cause"}
+		assert.False(t, IsBatchError(gqlErr))
+	})
 }
 
 // setupLoaderContext creates a context with dataloaders injected.
 func setupLoaderContext(ctx context.Context) context.Context {
-	loaders := NewLoaders()
-	return context.WithValue(ctx, loadersKey, loaders)
+	l := New()
+	return context.WithValue(ctx, loadersKey, l)
 }

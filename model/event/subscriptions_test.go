@@ -753,7 +753,7 @@ func (s *subscriptionsSuite) TestRemoveSubscriptionCleansUpParameterStore() {
 }
 
 func TestCopyProjectSubscriptions(t *testing.T) {
-	assert.NoError(t, db.ClearCollections(SubscriptionsCollection))
+	require.NoError(t, db.ClearCollections(SubscriptionsCollection))
 	oldProjectId := "my-project"
 	subs := []Subscription{
 		{
@@ -794,7 +794,7 @@ func TestCopyProjectSubscriptions(t *testing.T) {
 		},
 	}
 	for _, sub := range subs {
-		assert.NoError(t, sub.Upsert(t.Context()))
+		require.NoError(t, sub.Upsert(t.Context()))
 	}
 
 	for name, test := range map[string]func(t *testing.T){

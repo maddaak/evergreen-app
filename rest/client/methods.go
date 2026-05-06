@@ -102,7 +102,7 @@ func (c *communicatorImpl) GetSpawnHost(ctx context.Context, hostId string) (*mo
 func (c *communicatorImpl) GetProject(ctx context.Context, projectID string) (*model.APIProjectRef, error) {
 	info := requestInfo{
 		method: http.MethodGet,
-		path:   fmt.Sprintf("projects/%s", projectID),
+		path:   fmt.Sprintf("projects/%s?includeRepo=true", projectID),
 	}
 	resp, err := c.request(ctx, info, "")
 	if err != nil {
@@ -1968,7 +1968,7 @@ func GetOAuthToken(ctx context.Context, doNotUseBrowser bool, opts ...dex.Client
 	// acquire a new token.
 	tokenLockFilePath := client.TokenFilePath() + ".lock"
 	if delErr := os.RemoveAll(tokenLockFilePath); delErr != nil {
-		grip.Warning(errors.Wrapf(delErr, "removing OAuth token lock file at '%s'", tokenLockFilePath))
+		grip.Warning(ctx, errors.Wrapf(delErr, "removing OAuth token lock file at '%s'", tokenLockFilePath))
 	}
 
 	// This attempt tries to get a token or refreshes using the refresh token.
