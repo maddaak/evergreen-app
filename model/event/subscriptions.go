@@ -1006,11 +1006,13 @@ func (s *Subscription) saveWebhookSecretIfNeeded(ctx context.Context) error {
 	paramName, err := saveWebhookSecretToParameterStore(ctx, s.ID, webhookSub.Secret)
 	if err != nil {
 		grip.Warning(ctx, message.Fields{
-			"message":         "failed to save webhook secret to Parameter Store, keeping in MongoDB",
+			"message":         "failed to save webhook secret to Parameter Store, falling back to MongoDB",
 			"subscription_id": s.ID,
 			"error":           err.Error(),
 			"source":          "webhook-secret-migration",
 		})
+		// Clear SecretParameter so reads fall back to MongoDB, which will have the correct value after db.Replace.
+		webhookSub.SecretParameter = ""
 		return nil
 	}
 
