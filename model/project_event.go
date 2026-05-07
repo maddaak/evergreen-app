@@ -266,13 +266,15 @@ func buildWebhookSubscribers(subscriptions []event.Subscription) map[string]*eve
 	return result
 }
 
-// redactWebhook replaces the secret and Authorization header with a placeholder if modified, or clears them if unmodified.
+// redactWebhook replaces the secret and Authorization header with a diff-aware placeholder.
+// Modified secrets use the caller-supplied placeholder to show before/after. Unmodified secrets
+// use evergreen.RedactedValue so users know the field exists and was not deleted.
 func redactWebhook(ws *event.WebhookSubscriber, isModified bool, placeholder string) {
 	if len(ws.Secret) > 0 {
 		if isModified {
 			ws.Secret = []byte(placeholder)
 		} else {
-			ws.Secret = []byte{}
+			ws.Secret = []byte(evergreen.RedactedValue)
 		}
 	}
 	for i := range ws.Headers {
@@ -280,7 +282,7 @@ func redactWebhook(ws *event.WebhookSubscriber, isModified bool, placeholder str
 			if isModified {
 				ws.Headers[i].Value = placeholder
 			} else {
-				ws.Headers[i].Value = ""
+				ws.Headers[i].Value = evergreen.RedactedValue
 			}
 		}
 	}

@@ -991,22 +991,51 @@ func NewSpawnHostOutcomeByOwner(owner string, sub Subscriber) Subscription {
 // saveWebhookSecretIfNeeded saves the webhook secret to Parameter Store on every upsert.
 // This keeps Parameter Store authoritative on both creates and secret rotations.
 func (s *Subscription) saveWebhookSecretIfNeeded(ctx context.Context) error {
+	grip.Info(ctx, message.Fields{
+		"message":         "WEBHOOK_TESTTING::::: saveWebhookSecretIfNeeded called",
+		"subscription_id": s.ID,
+		"subscriber_type": s.Subscriber.Type,
+		"source":          "webhook-secret-migration",
+	})
+
 	if s.Subscriber.Type != EvergreenWebhookSubscriberType {
+		grip.Info(ctx, message.Fields{
+			"message":         "WEBHOOK_TESTTING::::: not a webhook subscription, skipping",
+			"subscription_id": s.ID,
+			"subscriber_type": s.Subscriber.Type,
+			"source":          "webhook-secret-migration",
+		})
 		return nil
 	}
 
 	webhookSub, ok := s.Subscriber.Target.(*WebhookSubscriber)
 	if !ok {
+		grip.Info(ctx, message.Fields{
+			"message":         "WEBHOOK_TESTTING::::: target type assertion failed, skipping",
+			"subscription_id": s.ID,
+			"source":          "webhook-secret-migration",
+		})
 		return nil
 	}
 	if len(webhookSub.Secret) == 0 {
+		grip.Info(ctx, message.Fields{
+			"message":         "WEBHOOK_TESTTING::::: secret is empty, skipping",
+			"subscription_id": s.ID,
+			"source":          "webhook-secret-migration",
+		})
 		return nil
 	}
+
+	grip.Info(ctx, message.Fields{
+		"message":         "WEBHOOK_TESTTING::::: attempting to save secret to Parameter Store",
+		"subscription_id": s.ID,
+		"source":          "webhook-secret-migration",
+	})
 
 	paramName, err := saveWebhookSecretToParameterStore(ctx, s.ID, webhookSub.Secret)
 	if err != nil {
 		grip.Warning(ctx, message.Fields{
-			"message":         "failed to save webhook secret to Parameter Store, falling back to MongoDB",
+			"message":         "WEBHOOK_TESTTING::::: failed to save webhook secret to Parameter Store, falling back to MongoDB",
 			"subscription_id": s.ID,
 			"error":           err.Error(),
 			"source":          "webhook-secret-migration",
@@ -1018,6 +1047,12 @@ func (s *Subscription) saveWebhookSecretIfNeeded(ctx context.Context) error {
 
 	webhookSub.SecretParameter = paramName
 	webhookSub.Secret = nil
+	grip.Info(ctx, message.Fields{
+		"message":         "WEBHOOK_TESTTING::::: saved webhook secret to Parameter Store",
+		"subscription_id": s.ID,
+		"parameter_name":  paramName,
+		"source":          "webhook-secret-migration",
+	})
 	return nil
 }
 

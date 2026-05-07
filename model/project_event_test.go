@@ -302,10 +302,10 @@ func (s *ProjectEventSuite) TestRedactSubscriptionSecretsUnmodified() {
 			webhookSub, ok := sub.Subscriber.Target.(*event.WebhookSubscriber)
 			s.Require().True(ok)
 			s.Require().NotNil(webhookSub)
-			s.Empty(webhookSub.Secret, "unmodified webhook secret should be cleared")
+			s.Equal(evergreen.RedactedValue, string(webhookSub.Secret), "unmodified webhook secret should be redacted")
 			for _, header := range webhookSub.Headers {
 				if header.Key == "Authorization" {
-					s.Empty(header.Value, "unmodified Authorization header should be cleared")
+					s.Equal(evergreen.RedactedValue, header.Value, "unmodified Authorization header should be redacted")
 				}
 			}
 		}
