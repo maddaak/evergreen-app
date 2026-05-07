@@ -568,8 +568,8 @@ func (s *subscriptionsSuite) TestUpsertWebhookSavesSecretToParameterStore() {
 	}
 	sub := Subscription{
 		ID:           "webhook-sub",
-		ResourceType: "PATCH",
-		Trigger:      "outcome",
+		ResourceType: ResourceTypePatch,
+		Trigger:      TriggerOutcome,
 		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
 		Filter:       Filter{ID: "test"},
 		Subscriber: Subscriber{
@@ -588,14 +588,14 @@ func (s *subscriptionsSuite) TestUpsertWebhookSavesSecretToParameterStore() {
 	s.Require().Len(fakeParams, 1)
 	s.Equal("my-secret", fakeParams[0].Value)
 
-	// Phase 1: secret is kept in MongoDB as a fallback until Phase 2 cleanup runs.
+	// New subscriptions must not persist the secret to MongoDB — only the Parameter Store path.
 	raw := bson.M{}
 	s.Require().NoError(db.FindOneQ(s.T().Context(), SubscriptionsCollection, db.Query(bson.M{"_id": "webhook-sub"}), &raw))
 	subscriberRaw, ok := raw["subscriber"].(bson.M)
 	s.Require().True(ok)
 	targetRaw, ok := subscriberRaw["target"].(bson.M)
 	s.Require().True(ok)
-	s.NotNil(targetRaw["secret"], "secret should be kept in MongoDB for Phase 2 cleanup")
+	s.Nil(targetRaw["secret"], "secret must not be stored in MongoDB")
 	s.NotEmpty(targetRaw["secret_parameter"], "secret_parameter path should be stored in MongoDB")
 }
 
@@ -603,8 +603,8 @@ func (s *subscriptionsSuite) TestUpsertNonWebhookDoesNotTouchParameterStore() {
 	t1 := "someone@example.com"
 	sub := Subscription{
 		ID:           "email-sub",
-		ResourceType: "PATCH",
-		Trigger:      "outcome",
+		ResourceType: ResourceTypePatch,
+		Trigger:      TriggerOutcome,
 		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
 		Filter:       Filter{ID: "test"},
 		Subscriber: Subscriber{
@@ -629,8 +629,8 @@ func (s *subscriptionsSuite) TestFindSubscriptionByIDPopulatesSecretFromParamete
 	}
 	sub := Subscription{
 		ID:           "webhook-find",
-		ResourceType: "PATCH",
-		Trigger:      "outcome",
+		ResourceType: ResourceTypePatch,
+		Trigger:      TriggerOutcome,
 		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
 		Filter:       Filter{ID: "test"},
 		Subscriber: Subscriber{
@@ -657,8 +657,8 @@ func (s *subscriptionsSuite) TestFindSubscriptionByIDFallsBackToMongoDBSecret() 
 	// Insert directly to bypass the Upsert write path which saves to PS.
 	raw := bson.M{
 		"_id":     "legacy-webhook",
-		"type":    "PATCH",
-		"trigger": "outcome",
+		"type":    ResourceTypePatch,
+		"trigger": TriggerOutcome,
 		"filter":  bson.M{"id": "test"},
 		"subscriber": bson.M{
 			"type": EvergreenWebhookSubscriberType,
@@ -690,8 +690,8 @@ func (s *subscriptionsSuite) TestFindSubscriptionsByOwnerPopulatesSecrets() {
 	}
 	sub := Subscription{
 		ID:           "webhook-owner",
-		ResourceType: "PATCH",
-		Trigger:      "outcome",
+		ResourceType: ResourceTypePatch,
+		Trigger:      TriggerOutcome,
 		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
 		Filter:       Filter{ID: "test"},
 		Subscriber: Subscriber{
@@ -712,15 +712,15 @@ func (s *subscriptionsSuite) TestFindSubscriptionsByOwnerPopulatesSecrets() {
 	s.Equal([]byte("owner-secret"), foundWebhook.Secret)
 }
 
-func (s *subscriptionsSuite) TestRemoveSubscriptionCleansUpParameterStore() {
+func (s *subscriptionsSuite) TestRemoveSubscriptionOnlyDeletesFromMongoDB() {
 	webhookSub := &WebhookSubscriber{
 		URL:    "https://example.com/webhook",
 		Secret: []byte("delete-me-secret"),
 	}
 	sub := Subscription{
 		ID:           "webhook-delete",
-		ResourceType: "PATCH",
-		Trigger:      "outcome",
+		ResourceType: ResourceTypePatch,
+		Trigger:      TriggerOutcome,
 		Selectors:    []Selector{{Type: SelectorID, Data: "test"}},
 		Filter:       Filter{ID: "test"},
 		Subscriber: Subscriber{
@@ -746,10 +746,10 @@ func (s *subscriptionsSuite) TestRemoveSubscriptionCleansUpParameterStore() {
 	s.Require().NoError(err)
 	s.Nil(found)
 
-	// Verify secret is removed from Parameter Store.
+	// Secret remains in Parameter Store — PS cleanup is handled by the Phase 2 migration job.
 	fakeParams, err = fakeparameter.FindByIDs(s.T().Context(), paramName)
 	s.Require().NoError(err)
-	s.Empty(fakeParams, "webhook secret should be deleted from Parameter Store")
+	s.Len(fakeParams, 1, "webhook secret should remain in Parameter Store until Phase 2 cleanup")
 }
 
 func TestCopyProjectSubscriptions(t *testing.T) {
