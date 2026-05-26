@@ -145,6 +145,7 @@ func (r *versionResolver) Cost(ctx context.Context, obj *restModel.APIVersion) (
 		AdjustedS3LogPutCost:          cost.RoundCost(obj.Cost.AdjustedS3LogPutCost),
 		AdjustedS3ArtifactStorageCost: cost.RoundCost(obj.Cost.AdjustedS3ArtifactStorageCost),
 		AdjustedS3LogStorageCost:      cost.RoundCost(obj.Cost.AdjustedS3LogStorageCost),
+		ChildPatchesTotalCost:         cost.RoundCost(obj.Cost.ChildPatchesTotalCost),
 	}
 	return &rounded, nil
 }

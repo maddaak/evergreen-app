@@ -759,6 +759,7 @@ func (r *taskResolver) TaskCost(ctx context.Context, obj *restModel.APITask) (*c
 		AdjustedS3LogPutCost:          cost.RoundCost(obj.TaskCost.AdjustedS3LogPutCost),
 		AdjustedS3ArtifactStorageCost: cost.RoundCost(obj.TaskCost.AdjustedS3ArtifactStorageCost),
 		AdjustedS3LogStorageCost:      cost.RoundCost(obj.TaskCost.AdjustedS3LogStorageCost),
+		ChildPatchesTotalCost:         cost.RoundCost(obj.TaskCost.ChildPatchesTotalCost),
 	}
 	return &rounded, nil
 }
