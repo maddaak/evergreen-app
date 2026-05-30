@@ -59,9 +59,7 @@ type Cost struct {
 	ChildPatchesTotalCost float64 `bson:"-" json:"child_patches_total_cost,omitempty"`
 }
 
-// AdjustedTotal returns the unrounded sum of the 7 core adjusted cost fields,
-// excluding ChildPatchesTotalCost. Callers that need child patch costs must add
-// ChildPatchesTotalCost explicitly so the inclusion is visible at the call site.
+// AdjustedTotal returns the sum of the 7 base adjusted fields, excluding ChildPatchesTotalCost.
 func (c Cost) AdjustedTotal() float64 {
 	return c.AdjustedEC2Cost +
 		c.AdjustedEBSThroughputCost +
@@ -72,8 +70,7 @@ func (c Cost) AdjustedTotal() float64 {
 		c.AdjustedS3LogStorageCost
 }
 
-// RoundedBase returns a Cost with the 7 core adjusted fields individually rounded.
-// Callers set ChildPatchesTotalCost and Total separately after computing the unrounded total.
+// RoundedBase returns a Cost with the 7 adjusted fields individually rounded; callers set ChildPatchesTotalCost and Total separately.
 func (c Cost) RoundedBase() Cost {
 	return Cost{
 		AdjustedEC2Cost:               RoundCost(c.AdjustedEC2Cost),
@@ -100,9 +97,7 @@ func SumPerChildVersionAdjustedTotals(n int, childAt func(int) (actual, predicte
 	return
 }
 
-// RoundCost removes floating-point noise from a cost value. Values >= 0.10
-// are rounded to 2 decimal places; values < 0.10 are rounded to 2 significant
-// figures to preserve meaningful precision for sub-dime costs.
+// RoundCost rounds v to 2 decimal places for values >= $0.10, or 2 significant figures below that threshold.
 func RoundCost(v float64) float64 {
 	if v == 0 {
 		return 0
