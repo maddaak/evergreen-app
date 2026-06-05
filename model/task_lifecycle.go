@@ -2466,6 +2466,15 @@ func saveAndTrackCrashPathS3Cost(ctx context.Context, t *task.Task) {
 		t.S3Usage.Artifacts = artifactUsage
 	}
 
+	if logUsage, err := t.GetS3LogUsageFromS3(ctx); err != nil {
+		grip.Error(ctx, message.WrapError(err, message.Fields{
+			"message": "getting S3 log usage for crash-path task",
+			"task_id": t.Id,
+		}))
+	} else {
+		t.S3Usage.Logs = logUsage
+	}
+
 	if err := t.SaveS3Usage(ctx, lookup, t.LogBucketName()); err != nil {
 		grip.Error(ctx, message.WrapError(err, message.Fields{
 			"message": "saving S3 usage for crash-path task",
