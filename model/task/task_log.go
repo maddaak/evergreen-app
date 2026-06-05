@@ -209,3 +209,13 @@ func getBucketConfigForProject(project string, originalBucketConfig evergreen.Bu
 	}
 	return originalBucketConfig
 }
+
+// LogBucketName returns the S3 bucket name for this task's logs, applying the
+// long-retention redirect if the project is in the long-retention list.
+func (t *Task) LogBucketName() string {
+	output, ok := t.GetTaskOutputSafe()
+	if !ok {
+		return ""
+	}
+	return getBucketConfigForProject(t.Project, output.TaskLogs.BucketConfig).Name
+}
